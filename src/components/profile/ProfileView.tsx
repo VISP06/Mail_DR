@@ -57,7 +57,7 @@ export const ProfileView: React.FC = () => {
           <span>Back to Inbox</span>
         </button>
 
-        <h1 className="text-xl font-bold tracking-tight">Profile</h1>
+        <h1 className="font-heading text-xl sm:text-2xl font-extrabold tracking-tight">Profile</h1>
       </div>
 
       {/* 1. Header: Avatar, Name, Email */}
@@ -76,7 +76,7 @@ export const ProfileView: React.FC = () => {
         </div>
 
         <div className="flex-1 min-w-0">
-          <h2 className="text-xl font-extrabold tracking-tight text-[var(--color-text-body)]">
+          <h2 className="font-heading text-xl font-extrabold tracking-tight text-[var(--color-text-body)]">
             {DEMO_USER.name}
           </h2>
           <p
@@ -146,7 +146,7 @@ export const ProfileView: React.FC = () => {
         <div className="flex items-center justify-between gap-3 mb-2">
           <div className="flex items-center gap-2.5">
             <Shield size={18} className="text-[var(--accent-peach)]" />
-            <h2 className="text-base font-bold tracking-tight">Access & Permissions</h2>
+            <h2 className="font-heading text-base font-semibold tracking-tight">Access & Permissions</h2>
           </div>
 
           <span
@@ -193,7 +193,7 @@ export const ProfileView: React.FC = () => {
       >
         <div className="flex items-center gap-2.5 mb-2">
           <Layers size={18} className="text-[var(--accent-chartreuse)]" />
-          <h2 className="text-base font-bold tracking-tight">Your inbox at a glance</h2>
+          <h2 className="font-heading text-base font-semibold tracking-tight">Your inbox at a glance</h2>
         </div>
         <p
           className="text-xs mb-5 leading-relaxed"
@@ -205,7 +205,7 @@ export const ProfileView: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Emails sorted */}
           <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col justify-between min-h-[90px]">
-            <div className="text-2xl font-extrabold tracking-tight text-[var(--color-text-body)]">
+            <div className="font-heading text-2xl font-extrabold tracking-tight text-[var(--color-text-body)]">
               {emailsSortedCount}
             </div>
             <div
@@ -218,7 +218,7 @@ export const ProfileView: React.FC = () => {
 
           {/* Senders blocked */}
           <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col justify-between min-h-[90px]">
-            <div className="text-2xl font-extrabold tracking-tight text-[var(--color-text-body)]">
+            <div className="font-heading text-2xl font-extrabold tracking-tight text-[var(--color-text-body)]">
               {blockedSenders.length}
             </div>
             <div
@@ -231,7 +231,7 @@ export const ProfileView: React.FC = () => {
 
           {/* Unsubscribe actions taken */}
           <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col justify-between min-h-[90px]">
-            <div className="text-2xl font-extrabold tracking-tight text-[var(--color-text-body)]">
+            <div className="font-heading text-2xl font-extrabold tracking-tight text-[var(--color-text-body)]">
               {unsubscribeCount}
             </div>
             <div
@@ -251,7 +251,7 @@ export const ProfileView: React.FC = () => {
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-bold tracking-tight text-rose-600 dark:text-rose-400">
+            <h2 className="font-heading text-base font-semibold tracking-tight text-rose-600 dark:text-rose-400">
               Delete Saved Data
             </h2>
             <p

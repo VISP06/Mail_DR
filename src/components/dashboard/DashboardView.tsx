@@ -57,11 +57,11 @@ export const DashboardView: React.FC = () => {
           >
             {todayFormatted}
           </span>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+          <h1 className="font-heading text-2xl sm:text-3xl font-extrabold tracking-tight">
             {greeting}, Maya
           </h1>
           <p
-            className="text-sm mt-1"
+            className="font-accent text-[17px] mt-1"
             style={{ color: 'var(--color-text-secondary)' }}
           >
             {highPriorityUnreadCount === 0

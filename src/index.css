@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
+@theme {
+  --font-heading: "Bricolage Grotesque", "DM Sans", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-accent: "Edu QLD Hand", "DM Sans", cursive, sans-serif;
+}
+
 :root {
-  /* Font Family */
-  --font-calm: "Plus Jakarta Sans", "Manrope", "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Font Family Tokens */
+  --font-heading: "Bricolage Grotesque", "DM Sans", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-accent: "Edu QLD Hand", "DM Sans", cursive, sans-serif;
 
   /* Universal Accents */
   --accent-chartreuse: #E8F49A;
@@ -69,15 +77,42 @@
   }
 }
 
+/* Default font-body for the whole app, including buttons, inputs, chips, and chat */
+html,
+body,
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: var(--font-body);
+}
+
+html,
 body {
-  font-family: var(--font-calm);
   background-color: var(--color-bg);
   color: var(--color-text-body);
   margin: 0;
   padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+/* Font utility classes mapping directly to font tokens */
+.font-heading {
+  font-family: var(--font-heading);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+.font-accent {
+  font-family: var(--font-accent);
 }
 
 /* Accessible focus ring */

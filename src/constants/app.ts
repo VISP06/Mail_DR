@@ -6,16 +6,21 @@ export const APP_TAGLINE = 'A quiet space for what matters today.';
 
 /**
  * Single source of truth breakpoint for responsive navigation:
- * Width below 768px: show only the bottom bar.
- * Width 768px and above: show only the side rail.
+ * Width below 600px: show only the bottom bar.
+ * Width 600px and above: show only the side rail.
  */
-export const NAV_BREAKPOINT_PX = 768;
+export const NAV_BREAKPOINT_PX = 600;
 
 export const DEMO_USER = {
   name: 'Maya',
   email: 'maya@example.com',
   initial: 'M',
 };
+
+/**
+ * Maximum number of most recent emails embedded and indexed for "Ask your inbox" RAG.
+ */
+export const ASK_INBOX_MAX_EMBEDDINGS = 200;
 
 export const PALETTE = {
   // Accents

@@ -35,13 +35,13 @@ export const NavRail: React.FC = () => {
     setSelectedEmail(null);
   };
 
-  // Width 768px and above: Render ONLY the Desktop Navigation Rail
+  // Width 600px and above: Render ONLY the Desktop Navigation Rail
   if (isDesktop) {
     return (
       <aside
         id="app-nav-rail"
         data-nav="rail"
-        className="flex flex-col items-center justify-between w-20 py-6 border-r border-[var(--color-border)] shrink-0 transition-colors select-none z-20"
+        className="w-20 h-full py-6 border-r border-[var(--color-border)] flex flex-col items-center justify-between shrink-0 transition-colors select-none z-20 overflow-y-auto"
         style={{
           backgroundColor: 'var(--color-surface)',
           color: 'var(--color-text-body)',
@@ -115,15 +115,17 @@ export const NavRail: React.FC = () => {
     );
   }
 
-  // Width below 768px (and default fallback): Render ONLY the Mobile/Tablet Bottom Bar
+  // Width below 600px (and default fallback): Render ONLY the Mobile/Tablet Bottom Bar
   return (
     <nav
       id="app-nav-bottom"
       data-nav="bottom-bar"
-      className="fixed bottom-0 left-0 right-0 h-16 border-t border-[var(--color-border)] flex items-center justify-around px-4 z-40 transition-colors backdrop-blur-sm"
+      className="w-full border-t border-[var(--color-border)] flex items-center justify-around px-4 z-20 shrink-0 transition-colors backdrop-blur-sm select-none"
       style={{
         backgroundColor: 'var(--color-surface)',
         color: 'var(--color-text-body)',
+        height: 'calc(64px + env(safe-area-inset-bottom, 0px))',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
       aria-label="Bottom Navigation"
     >

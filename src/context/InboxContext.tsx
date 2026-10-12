@@ -23,7 +23,7 @@ import {
   UNCATEGORIZED_CATEGORY,
   UNCATEGORIZED_CATEGORY_ID,
 } from '../constants/app';
-import { MockEmailProvider } from '../providers/MockEmailProvider';
+import { MockEmailProvider, STORAGE_KEY_USE_LARGE_DATASET } from '../providers/MockEmailProvider';
 import { categorizeEmailsApi, getReadFirstSuggestionsApi } from '../services/geminiService';
 import { RagService } from '../services/ragService';
 
@@ -150,6 +150,8 @@ interface InboxContextType {
   resetCategoryData: () => Promise<void>;
   layoutDebugOverlay: boolean;
   setLayoutDebugOverlay: (val: boolean) => void;
+  useLargeDataset: boolean;
+  setUseLargeDataset: (val: boolean) => void;
 }
 
 const InboxContext = createContext<InboxContextType | null>(null);
@@ -253,6 +255,46 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       localStorage.setItem(STORAGE_KEY_DEBUG_OVERLAY, String(val));
     } catch (err) {
       console.warn('Failed saving layout debug overlay setting:', err);
+    }
+  }, []);
+
+  // Large sample dataset toggle state (default true, saved in localStorage)
+  const [useLargeDataset, setUseLargeDatasetState] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const val = localStorage.getItem(STORAGE_KEY_USE_LARGE_DATASET);
+        if (val !== null) {
+          return val === 'true';
+        }
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  });
+
+  const setUseLargeDataset = useCallback(async (val: boolean) => {
+    setUseLargeDatasetState(val);
+    try {
+      localStorage.setItem(STORAGE_KEY_USE_LARGE_DATASET, String(val));
+    } catch (err) {
+      console.warn('Failed saving large dataset setting:', err);
+    }
+    // Reload provider emails according to new setting
+    emailProvider.refreshEmailsDataset();
+    try {
+      const emailList = await emailProvider.listEmails();
+      const currentBlocked = await emailProvider.getBlockedSenders();
+      setBlockedSenders(currentBlocked);
+      setRawEmails(
+        emailList.map((e) => ({
+          ...e,
+          categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+          categorySource: e.categorySource || 'fallback',
+        }))
+      );
+    } catch (e) {
+      console.warn('Failed reloading emails on dataset toggle:', e);
     }
   }, []);
 
@@ -463,8 +505,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setRawEmails(
         emailList.map((e) => ({
           ...e,
-          categoryId: UNCATEGORIZED_CATEGORY_ID,
-          categorySource: 'fallback',
+          categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+          categorySource: e.categorySource || 'fallback',
         }))
       );
     } catch (err) {
@@ -508,7 +550,16 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
       }
 
-      // 3. Fallback to Uncategorized
+      // 3. Pre-assigned rule or default category on the email
+      if (email.categoryId && validCategoryIds.has(email.categoryId) && email.categoryId !== UNCATEGORIZED_CATEGORY_ID) {
+        return {
+          ...email,
+          categoryId: email.categoryId,
+          categorySource: email.categorySource || ('rule' as CategorySource),
+        };
+      }
+
+      // 4. Fallback to Uncategorized
       return {
         ...email,
         categoryId: UNCATEGORIZED_CATEGORY_ID,
@@ -519,6 +570,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // STEP 5: Categorization execution
   // Re-categorize ONLY emails whose source is NOT "user".
+  // Generated emails have pre-assigned category and categorySource "rule": do NOT send to Gemini.
   const runCategorization = useCallback(
     async (forceEmails?: Email[]) => {
       if (!isStorageLoaded || rawEmails.length === 0) return;
@@ -527,14 +579,16 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (userCategories.length === 0) return;
 
       const pool = forceEmails || resolvedEmails;
-      // Re-categorize only emails whose source is not "user"
+      // Only emails with no category yet should ever be categorized by AI
       const emailsNeedingCategorization = pool.filter((e) => {
         // If sender has an explicit override, skip AI
         if (senderCategoryOverrides[e.senderEmail.toLowerCase()]) return false;
         // If user manually changed it, skip AI
         if (e.categorySource === 'user') return false;
-        // Needs categorization if uncategorized or source is fallback or requested
-        return true;
+        // If email has a pre-assigned rule category, do NOT send to Gemini
+        if (e.categorySource === 'rule' && e.categoryId && e.categoryId !== UNCATEGORIZED_CATEGORY_ID) return false;
+        // Only emails with no category yet (Uncategorized or fallback) get categorized by AI
+        return !e.categoryId || e.categoryId === UNCATEGORIZED_CATEGORY_ID;
       });
 
       if (emailsNeedingCategorization.length === 0) {
@@ -623,12 +677,24 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [priorityRules]
   );
 
-  // Read-first suggestions
+  // Read-first suggestions: must only consider unread emails from the last 30 days
   const refreshReadFirst = useCallback(async () => {
     if (resolvedEmails.length === 0) return;
     setIsLoadingSuggestions(true);
     try {
-      const suggestions = await getReadFirstSuggestionsApi(resolvedEmails);
+      const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const recentUnreadEmails = resolvedEmails.filter((e) => {
+        if (!e.isUnread) return false;
+        const emailTime = new Date(e.date).getTime();
+        return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+      });
+
+      if (recentUnreadEmails.length === 0) {
+        setReadFirstSuggestions([]);
+        return;
+      }
+
+      const suggestions = await getReadFirstSuggestionsApi(recentUnreadEmails);
       setReadFirstSuggestions(suggestions);
     } catch (err) {
       console.warn('Could not generate read-first suggestions:', err);
@@ -1153,6 +1219,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     resetCategoryData,
     layoutDebugOverlay,
     setLayoutDebugOverlay,
+    useLargeDataset,
+    setUseLargeDataset,
   };
 
   return <InboxContext.Provider value={value}>{children}</InboxContext.Provider>;

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Check, RotateCcw, X } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { useNavBreakpoint } from '../../hooks/useMediaQuery';
@@ -7,12 +8,12 @@ export const ReadSnackbar: React.FC = () => {
   const { readSnackbar, undoMarkAllAsRead, dismissReadSnackbar } = useInbox();
   const { isDesktop } = useNavBreakpoint();
 
-  if (!readSnackbar || !readSnackbar.isOpen) return null;
+  if (!readSnackbar || !readSnackbar.isOpen || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <aside
       className={`fixed ${
-        isDesktop ? 'bottom-10' : 'bottom-36'
+        isDesktop ? 'bottom-8 sm:bottom-10' : 'bottom-24 sm:bottom-28'
       } left-1/2 -translate-x-1/2 z-50 max-w-[90vw] sm:max-w-md px-4 py-3 rounded-2xl border border-[var(--color-border)] shadow-xl flex items-center justify-between gap-3 animate-fadeIn backdrop-blur-md select-none`}
       style={{
         backgroundColor: 'var(--color-surface-elevated)',
@@ -54,6 +55,7 @@ export const ReadSnackbar: React.FC = () => {
           <X size={14} />
         </button>
       </div>
-    </aside>
+    </aside>,
+    document.body
   );
 };

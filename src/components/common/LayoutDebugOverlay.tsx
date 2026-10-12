@@ -8,6 +8,11 @@ interface RectData {
   height: number;
 }
 
+interface FontStatus {
+  loaded: boolean;
+  renderedFamily: string;
+}
+
 interface LayoutDebugInfo {
   innerWidth: number;
   innerHeight: number;
@@ -18,6 +23,11 @@ interface LayoutDebugInfo {
   askRect: RectData | null;
   askOffScreen: boolean;
   mqResult: boolean;
+  mainWidth: number;
+  isContentClear: boolean;
+  headingFont: FontStatus;
+  bodyFont: FontStatus;
+  accentFont: FontStatus;
 }
 
 const checkOffScreen = (rect: DOMRect, winWidth: number, winHeight: number): boolean => {
@@ -50,6 +60,11 @@ export const LayoutDebugOverlay: React.FC = () => {
       askRect: null,
       askOffScreen: false,
       mqResult: mq,
+      mainWidth: 0,
+      isContentClear: true,
+      headingFont: { loaded: false, renderedFamily: '' },
+      bodyFont: { loaded: false, renderedFamily: '' },
+      accentFont: { loaded: false, renderedFamily: '' },
     };
   });
 
@@ -114,6 +129,54 @@ export const LayoutDebugOverlay: React.FC = () => {
         askOffScreen = checkOffScreen(r, winW, winH);
       }
 
+      // 3. Detect main content column
+      const mainEl = document.querySelector('#app-main-column, [data-main="content"], #app-main-scroll, main');
+      let mainWidth = 0;
+      let isContentClear = true;
+
+      if (mainEl && document.body.contains(mainEl)) {
+        const mRect = mainEl.getBoundingClientRect();
+        mainWidth = mRect.width;
+
+        if (navComponent === 'rail' && navRect) {
+          // Rail right edge = navRect.left + navRect.width
+          // Subpixel tolerance 0.5px: verify main's left edge is at or beyond rail's right edge
+          isContentClear = mRect.left >= (navRect.left + navRect.width - 0.5);
+        } else {
+          // Bottom bar or no rail: main is clear from left edge
+          isContentClear = mRect.left >= -0.5;
+        }
+      }
+
+      // 4. Font Loading via document.fonts.check and rendered family inspection
+      const checkFontLoaded = (name: string): boolean => {
+        if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.check === 'function') {
+          try {
+            return (
+              document.fonts.check(`16px "${name}"`) ||
+              document.fonts.check(`bold 16px "${name}"`) ||
+              document.fonts.check(`500 16px "${name}"`)
+            );
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      };
+
+      const headingLoaded = checkFontLoaded('Bricolage Grotesque');
+      const bodyLoaded = checkFontLoaded('DM Sans');
+      const accentLoaded = checkFontLoaded('Edu QLD Hand');
+
+      // Sample elements for computed font family
+      const sampleHeadingEl = document.querySelector('h1, h2, .font-heading');
+      const sampleBodyEl = document.querySelector('main p, p, body');
+      const sampleAccentEl = document.querySelector('.font-accent');
+
+      const headingRendered = sampleHeadingEl ? window.getComputedStyle(sampleHeadingEl).fontFamily : 'not found';
+      const bodyRendered = sampleBodyEl ? window.getComputedStyle(sampleBodyEl).fontFamily : 'not found';
+      const accentRendered = sampleAccentEl ? window.getComputedStyle(sampleAccentEl).fontFamily : 'not found';
+
       setInfo({
         innerWidth: winW,
         innerHeight: winH,
@@ -124,6 +187,11 @@ export const LayoutDebugOverlay: React.FC = () => {
         askRect,
         askOffScreen,
         mqResult,
+        mainWidth,
+        isContentClear,
+        headingFont: { loaded: headingLoaded, renderedFamily: headingRendered },
+        bodyFont: { loaded: bodyLoaded, renderedFamily: bodyRendered },
+        accentFont: { loaded: accentLoaded, renderedFamily: accentRendered },
       });
     };
 
@@ -134,7 +202,13 @@ export const LayoutDebugOverlay: React.FC = () => {
     window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, { passive: true, capture: true });
 
-    // Animation frame loop to track live changes during zoom gestures, orientation flips, and animations
+    // Font readiness listener
+    if (typeof document !== 'undefined' && document.fonts) {
+      document.fonts.ready.then(() => measure());
+      document.fonts.addEventListener?.('loadingdone', measure);
+    }
+
+    // Animation frame loop to track live changes
     let active = true;
     const loop = () => {
       if (!active) return;
@@ -148,6 +222,9 @@ export const LayoutDebugOverlay: React.FC = () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, { capture: true });
+      if (typeof document !== 'undefined' && document.fonts) {
+        document.fonts.removeEventListener?.('loadingdone', measure);
+      }
     };
   }, []);
 
@@ -194,6 +271,27 @@ export const LayoutDebugOverlay: React.FC = () => {
       {/* 5. The current value of the media-query result that decides between rail and bottom bar */}
       <div>
         media-query ((min-width: {NAV_BREAKPOINT_PX}px)): {String(info.mqResult)}
+      </div>
+
+      {/* 6. Main content column width & CONTENT CLEAR / CONTENT UNDER NAV */}
+      <div>
+        main col width: {info.mainWidth.toFixed(1)}px
+      </div>
+      <div className={info.isContentClear ? 'text-emerald-400 font-bold tracking-wide' : 'text-red-400 font-bold tracking-wide'}>
+        {info.isContentClear ? 'CONTENT CLEAR' : 'CONTENT UNDER NAV'}
+      </div>
+
+      {/* 7. Font checks (3 lines showing document.fonts.check and rendered font family) */}
+      <div className="pt-1.5 border-t border-white/20 text-[11px] space-y-0.5">
+        <div>
+          Heading ("Bricolage Grotesque"): {info.headingFont.loaded ? 'LOADED' : 'CHECKING...'} | h1/h2: {info.headingFont.renderedFamily}
+        </div>
+        <div>
+          Body ("DM Sans"): {info.bodyFont.loaded ? 'LOADED' : 'CHECKING...'} | p: {info.bodyFont.renderedFamily}
+        </div>
+        <div>
+          Accent ("Edu QLD Hand"): {info.accentFont.loaded ? 'LOADED' : 'CHECKING...'} | accent: {info.accentFont.renderedFamily}
+        </div>
       </div>
     </div>
   );

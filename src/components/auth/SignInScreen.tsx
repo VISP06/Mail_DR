@@ -10,7 +10,7 @@ interface SignInScreenProps {
 export const SignInScreen: React.FC<SignInScreenProps> = ({ onEnterDemo }) => {
   return (
     <div
-      className="min-h-[100dvh] flex items-center justify-center p-6 relative overflow-hidden"
+      className="h-[100dvh] w-full flex items-center justify-center p-6 relative overflow-hidden"
       style={{
         backgroundColor: 'var(--color-bg)',
         color: 'var(--color-text-body)',
@@ -32,7 +32,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onEnterDemo }) => {
           <Mail size={26} strokeWidth={2.2} />
         </div>
 
-        <h1 className="text-3xl font-extrabold tracking-tight text-[var(--color-text-body)]">
+        <h1 className="font-heading text-3xl font-extrabold tracking-tight text-[var(--color-text-body)]">
           {APP_NAME}
         </h1>
         <p

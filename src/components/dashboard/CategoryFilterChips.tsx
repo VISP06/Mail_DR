@@ -154,7 +154,7 @@ export const CategoryFilterChips: React.FC = () => {
         {/* Dynamic Categories */}
         {categories.map((cat) => {
           const totalInCat = categoryTotalCounts[cat.id] || 0;
-          // Show Uncategorized chip ONLY when it contains emails
+          // Show Uncategorized chip whenever it contains emails
           if (cat.id === UNCATEGORIZED_CATEGORY_ID && totalInCat === 0) {
             return null;
           }
@@ -181,6 +181,7 @@ export const CategoryFilterChips: React.FC = () => {
                 style={{ backgroundColor: cat.color }}
               />
               <span>{cat.name}</span>
+              <span className="text-[11px] opacity-80">({totalInCat})</span>
               {unread > 0 && (
                 <span
                   className="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
@@ -188,6 +189,7 @@ export const CategoryFilterChips: React.FC = () => {
                     backgroundColor: cat.color,
                     color: '#292D1E',
                   }}
+                  title={`${unread} unread`}
                 >
                   {unread}
                 </span>

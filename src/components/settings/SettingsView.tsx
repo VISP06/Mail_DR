@@ -66,6 +66,8 @@ export const SettingsView: React.FC = () => {
     resetCategoryData,
     layoutDebugOverlay,
     setLayoutDebugOverlay,
+    useLargeDataset,
+    setUseLargeDataset,
   } = useInbox();
 
   // Category editing state
@@ -215,7 +217,7 @@ export const SettingsView: React.FC = () => {
           <span>Back to Inbox</span>
         </button>
 
-        <h1 className="text-xl font-bold tracking-tight">Settings</h1>
+        <h1 className="font-heading text-xl sm:text-2xl font-extrabold tracking-tight">Settings</h1>
       </div>
 
       {/* =========================================================================
@@ -227,7 +229,7 @@ export const SettingsView: React.FC = () => {
       >
         <div className="flex items-center gap-2.5">
           <Palette size={18} className="text-[var(--accent-chartreuse)]" />
-          <h2 className="text-base font-bold tracking-tight">Appearance</h2>
+          <h2 className="font-heading text-base font-semibold tracking-tight">Appearance</h2>
         </div>
 
         {/* 1A. Theme Mode Segmented Control */}
@@ -318,7 +320,7 @@ export const SettingsView: React.FC = () => {
       >
         <div className="flex items-center gap-2.5 mb-2">
           <Inbox size={18} className="text-[var(--accent-lavender)]" />
-          <h2 className="text-base font-bold tracking-tight">Inbox Sorting</h2>
+          <h2 className="font-heading text-base font-semibold tracking-tight">Inbox Sorting</h2>
         </div>
         <p
           className="text-xs mb-4 leading-relaxed"
@@ -363,7 +365,7 @@ export const SettingsView: React.FC = () => {
          ========================================================================= */}
       <div className="space-y-6">
         <div className="px-1">
-          <h2 className="text-lg font-bold tracking-tight text-[var(--color-text-body)]">
+          <h2 className="font-heading text-lg font-bold tracking-tight text-[var(--color-text-body)]">
             Organize
           </h2>
           <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
@@ -379,7 +381,7 @@ export const SettingsView: React.FC = () => {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2.5">
               <Tags size={18} className="text-[var(--accent-peach)]" />
-              <h3 className="text-base font-bold tracking-tight">Email Categories</h3>
+              <h3 className="font-heading text-base font-semibold tracking-tight">Email Categories</h3>
             </div>
             {!isAddingCategory && (
               <button
@@ -619,7 +621,7 @@ export const SettingsView: React.FC = () => {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2.5">
               <Sliders size={18} className="text-[var(--accent-chartreuse)]" />
-              <h3 className="text-base font-bold tracking-tight">Custom Priority Rules</h3>
+              <h3 className="font-heading text-base font-semibold tracking-tight">Custom Priority Rules</h3>
             </div>
             {!isAddingRule && (
               <button
@@ -785,7 +787,7 @@ export const SettingsView: React.FC = () => {
         >
           <div className="flex items-center gap-2.5 mb-2">
             <Shield size={18} className="text-[#C9557F]" />
-            <h3 className="text-base font-bold tracking-tight">Blocked Senders</h3>
+            <h3 className="font-heading text-base font-semibold tracking-tight">Blocked Senders</h3>
           </div>
           <p
             className="text-xs mb-5 leading-relaxed"
@@ -796,7 +798,7 @@ export const SettingsView: React.FC = () => {
 
           {blockedSenders.length === 0 ? (
             <div
-              className="p-4 rounded-2xl border border-[var(--color-border)] text-xs text-center"
+              className="p-4 rounded-2xl border border-[var(--color-border)] font-accent text-[16px] text-center"
               style={{ color: 'var(--color-text-secondary)' }}
             >
               No blocked senders. Your inbox is serene.
@@ -835,7 +837,7 @@ export const SettingsView: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
           <div className="flex items-center gap-2.5">
             <Bug size={18} className="text-[var(--accent-chartreuse)]" />
-            <h2 className="text-base font-bold tracking-tight">Debug (temporary)</h2>
+            <h2 className="font-heading text-base font-semibold tracking-tight">Debug (temporary)</h2>
           </div>
 
           <button
@@ -901,6 +903,135 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
 
+        {/* Use large sample set toggle */}
+        <div className="flex items-center justify-between p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4">
+          <div className="pr-4">
+            <label
+              htmlFor="large-dataset-toggle"
+              className="text-xs font-bold block text-[var(--color-text-body)] cursor-pointer"
+            >
+              Use large sample set
+            </label>
+            <p
+              className="text-xs leading-relaxed mt-0.5"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              Load the full dataset (800+ emails) for testing Cleanup and volume stress tests. Switch off to return to just the original 40 hand-written emails.
+            </p>
+          </div>
+
+          <button
+            id="large-dataset-toggle"
+            type="button"
+            role="switch"
+            aria-checked={useLargeDataset}
+            onClick={() => setUseLargeDataset(!useLargeDataset)}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
+              useLargeDataset
+                ? 'bg-[var(--accent-chartreuse)]'
+                : 'bg-zinc-300 dark:bg-zinc-700'
+            }`}
+            title="Toggle large sample dataset"
+          >
+            <span className="sr-only">Use large sample set</span>
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-zinc-900 shadow-sm ring-0 transition duration-200 ease-in-out ${
+                useLargeDataset ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Category & Source Diagnostic Counts */}
+        {(() => {
+          const catCounts: Record<string, number> = {};
+          const sourceCounts: Record<string, number> = {};
+          for (const email of emails) {
+            const cId = email.categoryId || UNCATEGORIZED_CATEGORY_ID;
+            catCounts[cId] = (catCounts[cId] || 0) + 1;
+            const src = email.categorySource || 'fallback';
+            sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+          }
+
+          let accountedTotal = 0;
+          for (const count of Object.values(catCounts)) {
+            accountedTotal += count;
+          }
+          const hasMismatch = accountedTotal !== emails.length;
+
+          return (
+            <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[var(--color-text-body)]">
+                  Category &amp; Source Diagnostics
+                </span>
+                <span
+                  className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                    hasMismatch
+                      ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30'
+                      : 'bg-[var(--accent-chartreuse)]/25 text-[#292D1E] dark:text-[var(--accent-chartreuse)]'
+                  }`}
+                >
+                  Category totals: {accountedTotal} of {emails.length} emails accounted for
+                </span>
+              </div>
+
+              {hasMismatch && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>
+                    Warning: Category total count ({accountedTotal}) does not match the total email count ({emails.length}).
+                  </span>
+                </div>
+              )}
+
+              {/* Counts per Category */}
+              <div>
+                <span className="text-[11px] font-semibold block text-[var(--color-text-secondary)] mb-1">
+                  Count per category:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {categories.map((c) => {
+                    const cnt = catCounts[c.id] || 0;
+                    return (
+                      <span
+                        key={c.id}
+                        className="text-[11px] px-2.5 py-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-1.5"
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                        <span className="font-medium text-[var(--color-text-body)]">{c.name}:</span>
+                        <span className="font-bold">{cnt}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Counts per CategorySource */}
+              <div>
+                <span className="text-[11px] font-semibold block text-[var(--color-text-secondary)] mb-1">
+                  Count per categorySource:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['rule', 'ai', 'user', 'fallback'] as const).map((src) => {
+                    const cnt = sourceCounts[src] || 0;
+                    return (
+                      <span
+                        key={src}
+                        className="text-[11px] px-2.5 py-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-1.5 font-mono"
+                      >
+                        <span className="font-medium uppercase text-[10px] text-[var(--color-text-secondary)]">{src}:</span>
+                        <span className="font-bold text-[var(--color-text-body)]">{cnt}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="max-h-72 overflow-y-auto rounded-2xl border border-[var(--color-border)] divide-y divide-[var(--color-border)] text-[11px] font-mono">
           {emails.map((email) => {
             const resolvedName = getCategoryName(email.categoryId);
@@ -921,7 +1052,7 @@ export const SettingsView: React.FC = () => {
                   <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg)]">
                     id: {email.categoryId}
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-sans font-bold bg-[var(--accent-chartreuse)]/25 text-[#292D1E]">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[var(--accent-chartreuse)]/25 text-[#292D1E]">
                     {resolvedName}
                   </span>
                   <span

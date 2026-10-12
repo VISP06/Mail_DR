@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MessageSquare,
   Sparkles,
@@ -96,16 +97,16 @@ export const AskInboxPanel: React.FC = () => {
 
   return (
     <>
-      {/* Floating Action Button (FAB) - Positioned dynamically via useNavBreakpoint */}
+      {/* Floating Action Button (FAB) - Positioned relative to the main column (16px bottom-right) */}
       <button
         type="button"
         id="ask-inbox-floating-button"
         data-floating-button="ask-inbox"
         onClick={() => setIsRagOpen(!isRagOpen)}
         title="Ask your inbox (RAG assistant)"
-        className={`fixed right-6 z-40 min-h-[52px] px-5 py-3 rounded-full shadow-lg flex items-center gap-2.5 transition-all font-semibold text-sm active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
-          isDesktop ? 'bottom-8' : 'bottom-20'
-        } ${isRagOpen ? 'scale-90 opacity-90' : 'hover:scale-105'}`}
+        className={`absolute right-4 bottom-4 z-30 min-h-[52px] px-5 py-3 rounded-full shadow-lg flex items-center gap-2.5 transition-all font-semibold text-sm active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
+          isRagOpen ? 'scale-90 opacity-90' : 'hover:scale-105'
+        }`}
         style={{
           backgroundColor: 'var(--color-primary-btn)',
           color: 'var(--color-primary-btn-text)',
@@ -116,18 +117,18 @@ export const AskInboxPanel: React.FC = () => {
         <span className="hidden sm:inline">Ask inbox</span>
       </button>
 
-      {/* Floating Chat Drawer / Panel */}
-      {isRagOpen && (
-        <aside
-          className={`fixed right-4 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[420px] max-h-[80dvh] h-[580px] rounded-[28px] border border-[var(--color-border)] shadow-2xl flex flex-col overflow-hidden transition-all backdrop-blur-md ${
-            isDesktop ? 'bottom-24' : 'bottom-24'
-          }`}
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            color: 'var(--color-text-body)',
-          }}
-          aria-label="Ask your inbox chat"
-        >
+      {/* Floating Chat Drawer / Panel - Rendered via Portal to ensure visibility above everything */}
+      {isRagOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <aside
+            className="fixed right-4 sm:right-6 bottom-20 sm:bottom-24 z-50 w-[calc(100vw-32px)] sm:w-[420px] max-h-[80dvh] h-[580px] rounded-[28px] border border-[var(--color-border)] shadow-2xl flex flex-col overflow-hidden transition-all backdrop-blur-md"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-body)',
+            }}
+            aria-label="Ask your inbox chat"
+          >
           {/* Header */}
           <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -135,7 +136,7 @@ export const AskInboxPanel: React.FC = () => {
                 <Sparkles size={16} />
               </div>
               <div>
-                <h3 className="text-sm font-bold tracking-tight">Ask your inbox</h3>
+                <h3 className="font-heading text-sm font-semibold tracking-tight">Ask your inbox</h3>
                 <p className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
                   Answers grounded strictly in your emails
                 </p>
@@ -162,7 +163,11 @@ export const AskInboxPanel: React.FC = () => {
                 }`}
               >
                 <div
-                  className={`max-w-[88%] p-3.5 rounded-2xl text-xs leading-relaxed ${
+                  className={`max-w-[88%] p-3.5 rounded-2xl leading-relaxed ${
+                    msg.id === 'welcome'
+                      ? 'font-accent text-[17px]'
+                      : 'text-xs'
+                  } ${
                     msg.sender === 'user'
                       ? 'rounded-br-sm'
                       : 'rounded-bl-sm border border-[var(--color-border)]'
@@ -290,7 +295,8 @@ export const AskInboxPanel: React.FC = () => {
               <Send size={15} />
             </button>
           </form>
-        </aside>
+        </aside>,
+        document.body
       )}
     </>
   );

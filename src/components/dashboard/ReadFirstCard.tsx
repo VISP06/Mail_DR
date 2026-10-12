@@ -45,7 +45,7 @@ export const ReadFirstCard: React.FC = () => {
             <div className="w-7 h-7 rounded-full bg-[var(--accent-chartreuse)]/25 flex items-center justify-center text-[#292D1E]">
               <Sparkles size={15} />
             </div>
-            <h2 className="text-base font-bold tracking-tight">
+            <h2 className="font-heading text-base font-semibold tracking-tight">
               What should I read first?
             </h2>
           </div>

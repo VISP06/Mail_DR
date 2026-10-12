@@ -121,7 +121,7 @@ export const EmailDetailView: React.FC = () => {
         {/* Email Header */}
         <header className="border-b border-[rgba(116,121,90,0.2)] pb-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
-            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-[#292D1E] flex-1 break-words min-w-0">
+            <h1 className="font-heading text-lg sm:text-2xl font-bold sm:font-extrabold tracking-tight text-[#292D1E] flex-1 break-words min-w-0">
               {selectedEmail.subject}
             </h1>
 

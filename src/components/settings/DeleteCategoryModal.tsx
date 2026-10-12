@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle } from 'lucide-react';
 import { EmailCategory } from '../../types';
 import { DeleteCategoryOptions } from '../../context/InboxContext';
@@ -25,7 +26,7 @@ export const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
     remainingCategories[0]?.id || ''
   );
 
-  if (!isOpen || !category) return null;
+  if (!isOpen || !category || typeof document === 'undefined') return null;
 
   const handleConfirm = () => {
     onConfirm({
@@ -35,7 +36,7 @@ export const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
     });
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px] transition-opacity"
       role="dialog"
@@ -173,6 +174,7 @@ export const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

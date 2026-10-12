@@ -36,7 +36,7 @@ export const EmailList: React.FC = () => {
     return searchEmails(searchQuery, categoryFilteredEmails);
   }, [searchQuery, categoryFilteredEmails]);
 
-  // Total unread in the Unread category view
+  // Total unread in the Unread category view (uses ALL emails, not just visible ones)
   const unreadCountInUnreadView = useMemo(() => {
     return categoryFilteredEmails.filter((e) => e.isUnread).length;
   }, [categoryFilteredEmails]);
@@ -54,6 +54,25 @@ export const EmailList: React.FC = () => {
   };
 
   const isSearching = Boolean(searchQuery.trim());
+
+  // Performance pagination: show 50 emails at first, load 50 more with "Show more"
+  const [visibleCount, setVisibleCount] = React.useState<number>(50);
+
+  // Reset pagination when category filter, search query, or sort order changes
+  React.useEffect(() => {
+    setVisibleCount(50);
+  }, [activeCategoryFilter, searchQuery, sortByPriorityFirst]);
+
+  const visibleEmails = useMemo(() => {
+    return filteredEmails.slice(0, visibleCount);
+  }, [filteredEmails, visibleCount]);
+
+  const hasMore = visibleCount < filteredEmails.length;
+  const remainingCount = filteredEmails.length - visibleCount;
+
+  const handleShowMore = () => {
+    setVisibleCount((prev) => prev + 50);
+  };
 
   return (
     <div id="email-list-section" className="space-y-4 scroll-mt-6">
@@ -135,7 +154,7 @@ export const EmailList: React.FC = () => {
             <div className="w-12 h-12 rounded-full mb-3 flex items-center justify-center bg-[var(--accent-chartreuse)]/20 text-[#292D1E] border border-[var(--color-border)]">
               <Search size={20} />
             </div>
-            <h3 className="text-base font-bold tracking-tight text-[var(--color-text-body)]">
+            <h3 className="font-accent text-[18px] tracking-tight text-[var(--color-text-body)]">
               No emails match "{searchQuery.trim()}"
             </h3>
             <p className="mt-1 text-xs text-[var(--color-text-secondary)] max-w-sm">
@@ -160,7 +179,7 @@ export const EmailList: React.FC = () => {
               <div className="w-12 h-12 rounded-full mb-3 flex items-center justify-center bg-[var(--accent-chartreuse)]/20 text-[#292D1E] border border-[var(--color-border)]">
                 <CheckCheck size={22} />
               </div>
-              <h3 className="text-xl font-bold tracking-tight text-[var(--color-text-body)]">
+              <h3 className="font-accent text-[18px] tracking-tight text-[var(--color-text-body)]">
                 {activeCategoryFilter === 'high-priority'
                   ? 'Nothing high priority is waiting.'
                   : "You're all caught up"}
@@ -182,7 +201,7 @@ export const EmailList: React.FC = () => {
           className="rounded-[24px] border border-[var(--color-border)] overflow-hidden divide-y divide-[var(--color-border)]"
           style={{ backgroundColor: 'var(--color-surface)' }}
         >
-          {filteredEmails.map((email) => {
+          {visibleEmails.map((email) => {
             const category = getCategoryById(email.categoryId);
             const priority = getEmailPriority(email);
 
@@ -283,6 +302,26 @@ export const EmailList: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Show More Pagination Button */}
+      {hasMore && (
+        <div className="pt-2 pb-6 flex flex-col items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={handleShowMore}
+            className="min-h-[44px] px-6 py-2.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover-tint)] hover:border-[var(--accent-chartreuse)] text-xs font-semibold tracking-wide transition-all shadow-xs active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
+            style={{ color: 'var(--color-text-body)' }}
+          >
+            Show more ({remainingCount} remaining)
+          </button>
+          <span
+            className="text-[11px]"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            Showing {visibleEmails.length} of {filteredEmails.length}
+          </span>
         </div>
       )}
     </div>

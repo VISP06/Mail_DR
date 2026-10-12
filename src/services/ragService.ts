@@ -1,5 +1,6 @@
 import { Email, RagCitation } from '../types';
 import { embedTextsApi, ragChatApi } from './geminiService';
+import { ASK_INBOX_MAX_EMBEDDINGS } from '../constants/app';
 
 const DB_NAME = 'CalmInboxVectors';
 const DB_VERSION = 1;
@@ -115,10 +116,15 @@ export class RagService {
     this.isIndexing = true;
 
     try {
+      // "ASK YOUR INBOX" must embed only the most recent ASK_INBOX_MAX_EMBEDDINGS (200) emails
+      const targetEmails = [...emails]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, ASK_INBOX_MAX_EMBEDDINGS);
+
       const missingEmails: Email[] = [];
 
       // Check cache (memory first, then IndexedDB)
-      for (const email of emails) {
+      for (const email of targetEmails) {
         if (inMemoryVectorCache.has(email.id)) {
           continue;
         }
@@ -130,8 +136,8 @@ export class RagService {
         }
       }
 
-      this.indexedCount = emails.length - missingEmails.length;
-      onProgress?.(this.indexedCount, emails.length);
+      this.indexedCount = targetEmails.length - missingEmails.length;
+      onProgress?.(this.indexedCount, targetEmails.length);
 
       // Embed missing emails in batches of 6
       const BATCH_SIZE = 6;
@@ -153,7 +159,7 @@ export class RagService {
         }
 
         this.indexedCount += batch.length;
-        onProgress?.(this.indexedCount, emails.length);
+        onProgress?.(this.indexedCount, targetEmails.length);
       }
     } catch (err) {
       console.warn('Indexing error:', err);
@@ -165,15 +171,20 @@ export class RagService {
   async searchRelevantEmails(query: string, allEmails: Email[], topK = 6): Promise<Email[]> {
     if (!query.trim() || allEmails.length === 0) return [];
 
-    // Ensure all emails have embeddings
-    await this.indexEmails(allEmails);
+    // Limit to the most recent 200 emails
+    const targetEmails = [...allEmails]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, ASK_INBOX_MAX_EMBEDDINGS);
+
+    // Ensure target emails have embeddings
+    await this.indexEmails(targetEmails);
 
     // Embed the query
     const [queryVector] = await embedTextsApi([query]);
     if (!queryVector || queryVector.length === 0) {
       // Fallback: keyword search
       const qLower = query.toLowerCase();
-      return allEmails
+      return targetEmails
         .filter(
           (e) =>
             e.subject.toLowerCase().includes(qLower) ||
@@ -185,7 +196,7 @@ export class RagService {
 
     // Rank emails by cosine similarity
     const scored: { email: Email; score: number }[] = [];
-    for (const email of allEmails) {
+    for (const email of targetEmails) {
       const vec = inMemoryVectorCache.get(email.id);
       if (vec) {
         const score = cosineSimilarity(queryVector, vec);

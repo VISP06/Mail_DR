@@ -1,4 +1,5 @@
-export type CategorySource = 'ai' | 'user' | 'fallback';
+export type CategorySource = 'ai' | 'user' | 'fallback' | 'rule';
+export type GmailCategory = 'primary' | 'promotions' | 'social' | 'updates' | 'forums';
 
 export interface Email {
   id: string;
@@ -12,6 +13,10 @@ export interface Email {
   unsubscribeUrl?: string;
   categoryId?: string;
   categorySource?: CategorySource;
+  isStarred?: boolean;
+  hasAttachment?: boolean;
+  userHasReplied?: boolean;
+  gmailCategory?: GmailCategory;
 }
 
 export interface EmailCategory {

@@ -48,13 +48,13 @@ export function useMediaQuery(query: string, defaultValue: boolean = false): boo
 }
 
 /**
- * Navigation breakpoint hook powered by the single breakpoint constant (768px).
- * Width below 768px: returns { isDesktop: false } (show only bottom bar)
- * Width 768px and above: returns { isDesktop: true } (show only side rail)
+ * Navigation breakpoint hook powered by the single breakpoint constant (600px).
+ * Width below 600px: returns { isDesktop: false } (show only bottom bar)
+ * Width 600px and above: returns { isDesktop: true } (show only side rail)
  * If media query result is not available yet, defaults to false (bottom bar).
  */
 export function useNavBreakpoint(): { isDesktop: boolean } {
-  // Below 768px is mobile/tablet bottom bar; 768px and above is desktop side rail
+  // Below 600px is mobile/tablet bottom bar; 600px and above is desktop side rail
   const isDesktop = useMediaQuery(`(min-width: ${NAV_BREAKPOINT_PX}px)`, false);
   return { isDesktop };
 }
