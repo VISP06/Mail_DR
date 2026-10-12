@@ -1,0 +1,6 @@
+{
+  "name": "Calm Inbox",
+  "description": "A calm, earthy AI email assistant with category sorting, priorities, intelligent summaries, and semantic inbox search.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
