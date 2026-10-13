@@ -326,7 +326,7 @@ export const SettingsView: React.FC = () => {
           className="text-xs mb-4 leading-relaxed"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          Choose how messages are ordered when you open the inbox.
+          Choose how emails are ordered when you open the inbox.
         </p>
 
         <div

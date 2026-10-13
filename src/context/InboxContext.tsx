@@ -22,6 +22,7 @@ import {
   DEFAULT_CATEGORIES,
   UNCATEGORIZED_CATEGORY,
   UNCATEGORIZED_CATEGORY_ID,
+  READ_FIRST_DAYS,
 } from '../constants/app';
 import { MockEmailProvider, STORAGE_KEY_USE_LARGE_DATASET } from '../providers/MockEmailProvider';
 import { categorizeEmailsApi, getReadFirstSuggestionsApi } from '../services/geminiService';
@@ -109,6 +110,8 @@ interface InboxContextType {
   // Read First & AI State
   readFirstSuggestions: ReadFirstItem[];
   isLoadingSuggestions: boolean;
+  readFirstError: boolean;
+  readFirstCandidateCount: number;
   refreshReadFirst: () => Promise<void>;
 
   // Categorization Progress & Retry
@@ -222,6 +225,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [readFirstSuggestions, setReadFirstSuggestions] = useState<ReadFirstItem[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
+  const [readFirstError, setReadFirstError] = useState<boolean>(false);
+  const [readFirstCandidateCount, setReadFirstCandidateCount] = useState<number>(0);
 
   // Categorization progress & error state
   const [isCategorizing, setIsCategorizing] = useState<boolean>(false);
@@ -681,23 +686,41 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const refreshReadFirst = useCallback(async () => {
     if (resolvedEmails.length === 0) return;
     setIsLoadingSuggestions(true);
+    setReadFirstError(false);
+
+    const thirtyDaysAgoMs = Date.now() - READ_FIRST_DAYS * 24 * 60 * 60 * 1000;
+    const recentUnreadEmails = resolvedEmails.filter((e) => {
+      if (!e.isUnread) return false;
+      const emailTime = new Date(e.date).getTime();
+      return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+    });
+
+    setReadFirstCandidateCount(recentUnreadEmails.length);
+
+    if (recentUnreadEmails.length === 0) {
+      setReadFirstSuggestions([]);
+      setIsLoadingSuggestions(false);
+      return;
+    }
+
     try {
-      const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      const recentUnreadEmails = resolvedEmails.filter((e) => {
-        if (!e.isUnread) return false;
-        const emailTime = new Date(e.date).getTime();
-        return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+      // 20-second timeout race
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Suggestions request timed out after 20 seconds'));
+        }, 20000);
       });
 
-      if (recentUnreadEmails.length === 0) {
-        setReadFirstSuggestions([]);
-        return;
-      }
+      const suggestions = await Promise.race([
+        getReadFirstSuggestionsApi(recentUnreadEmails),
+        timeoutPromise,
+      ]);
 
-      const suggestions = await getReadFirstSuggestionsApi(recentUnreadEmails);
       setReadFirstSuggestions(suggestions);
-    } catch (err) {
-      console.warn('Could not generate read-first suggestions:', err);
+      setReadFirstError(false);
+    } catch (err: any) {
+      console.error('[ReadFirst] Failed to fetch read-first suggestions:', err);
+      setReadFirstError(true);
     } finally {
       setIsLoadingSuggestions(false);
     }
@@ -1135,9 +1158,14 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return list;
   }, [resolvedEmails, sortByPriorityFirst, getEmailPriority]);
 
-  // Count of emails that are BOTH unread AND High priority (from existing rules)
+  // Count of emails that are unread AND High priority AND from the last 30 days (READ_FIRST_DAYS)
   const highPriorityUnreadCount = useMemo(() => {
-    return resolvedEmails.filter((e) => e.isUnread && getEmailPriority(e) === 'High').length;
+    const thirtyDaysAgoMs = Date.now() - READ_FIRST_DAYS * 24 * 60 * 60 * 1000;
+    return resolvedEmails.filter((e) => {
+      if (!e.isUnread || getEmailPriority(e) !== 'High') return false;
+      const emailTime = new Date(e.date).getTime();
+      return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+    }).length;
   }, [resolvedEmails, getEmailPriority]);
 
   const value: InboxContextType = {
@@ -1197,6 +1225,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     readFirstSuggestions,
     isLoadingSuggestions,
+    readFirstError,
+    readFirstCandidateCount,
     refreshReadFirst,
 
     isCategorizing,

@@ -39,6 +39,31 @@ export const CategoryFilterChips: React.FC = () => {
     return counts;
   }, [categories, emails]);
 
+  // Track horizontal scroll state to render soft fade overlays on edges
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = React.useState(false);
+  const [canScrollRight, setCanScrollRight] = React.useState(false);
+
+  const checkScroll = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanScrollLeft(scrollLeft > 2);
+    setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 2);
+  }, []);
+
+  React.useEffect(() => {
+    checkScroll();
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', checkScroll, { passive: true });
+    window.addEventListener('resize', checkScroll);
+    return () => {
+      el.removeEventListener('scroll', checkScroll);
+      window.removeEventListener('resize', checkScroll);
+    };
+  }, [checkScroll, categories.length, emails.length]);
+
   return (
     <div className="space-y-2">
       {/* AI Sorting Status / Retry Notification */}
@@ -74,12 +99,38 @@ export const CategoryFilterChips: React.FC = () => {
         </div>
       )}
 
-      {/* Chips Carousel */}
-      <div
-        className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar"
-        role="tablist"
-        aria-label="Filter emails by category"
-      >
+      {/* Chips Carousel Container with edge fade masks */}
+      <div className="relative w-full">
+        {/* Soft fade on the left edge (when scrolled) */}
+        <div
+          className={`absolute left-0 top-0 bottom-0 w-8 pointer-events-none z-10 transition-opacity duration-200 ${
+            canScrollLeft ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{
+            background:
+              'linear-gradient(to right, var(--color-bg) 20%, transparent 100%)',
+          }}
+          aria-hidden="true"
+        />
+
+        {/* Soft fade on the right edge */}
+        <div
+          className={`absolute right-0 top-0 bottom-0 w-8 pointer-events-none z-10 transition-opacity duration-200 ${
+            canScrollRight ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{
+            background:
+              'linear-gradient(to left, var(--color-bg) 20%, transparent 100%)',
+          }}
+          aria-hidden="true"
+        />
+
+        <div
+          ref={scrollRef}
+          className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar"
+          role="tablist"
+          aria-label="Filter emails by category"
+        >
         {/* All Emails Chip */}
         <button
           type="button"
@@ -197,6 +248,7 @@ export const CategoryFilterChips: React.FC = () => {
             </button>
           );
         })}
+        </div>
       </div>
     </div>
   );

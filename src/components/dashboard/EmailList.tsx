@@ -4,6 +4,7 @@ import { SenderAvatar, CategoryBadge } from '../common/CategoryBadge';
 import { OrganicBlob } from '../common/OrganicBlob';
 import { ArrowUpDown, CheckCheck, Check, Search } from 'lucide-react';
 import { searchEmails, highlightMatch } from '../../services/searchService';
+import { READ_FIRST_DAYS } from '../../constants/app';
 
 export const EmailList: React.FC = () => {
   const {
@@ -26,7 +27,12 @@ export const EmailList: React.FC = () => {
     if (activeCategoryFilter === 'all') return emails;
     if (activeCategoryFilter === 'unread') return emails.filter((e) => e.isUnread);
     if (activeCategoryFilter === 'high-priority') {
-      return emails.filter((e) => e.isUnread && getEmailPriority(e) === 'High');
+      const thirtyDaysAgoMs = Date.now() - READ_FIRST_DAYS * 24 * 60 * 60 * 1000;
+      return emails.filter((e) => {
+        if (!e.isUnread || getEmailPriority(e) !== 'High') return false;
+        const emailTime = new Date(e.date).getTime();
+        return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+      });
     }
     return emails.filter((e) => e.categoryId === activeCategoryFilter);
   }, [emails, activeCategoryFilter, getEmailPriority]);
@@ -111,7 +117,7 @@ export const EmailList: React.FC = () => {
             className="text-xs"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            {filteredEmails.length} {filteredEmails.length === 1 ? 'message' : 'messages'}
+            {filteredEmails.length} {filteredEmails.length === 1 ? 'email' : 'emails'}
           </span>
         </div>
 
@@ -311,10 +317,16 @@ export const EmailList: React.FC = () => {
           <button
             type="button"
             onClick={handleShowMore}
-            className="min-h-[44px] px-6 py-2.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover-tint)] hover:border-[var(--accent-chartreuse)] text-xs font-semibold tracking-wide transition-all shadow-xs active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
+            className="min-h-[44px] px-6 py-2.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover-tint)] hover:border-[var(--accent-chartreuse)] text-xs font-semibold tracking-wide transition-all shadow-xs active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] inline-flex items-center gap-2"
             style={{ color: 'var(--color-text-body)' }}
           >
-            Show more ({remainingCount} remaining)
+            <span>Show 50 more</span>
+            <span
+              className="text-[11px] font-normal opacity-75"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              ({remainingCount} left)
+            </span>
           </button>
           <span
             className="text-[11px]"

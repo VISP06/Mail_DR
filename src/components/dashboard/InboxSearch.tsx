@@ -125,7 +125,7 @@ export const InboxSearch: React.FC<InboxSearchProps> = ({ resultCount }) => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isTouchDevice ? 'Search emails' : 'Search emails (press / to focus)'}
+          placeholder="Search emails"
           className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-body)] placeholder:text-[var(--color-text-secondary)]/70 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
           aria-describedby={isSearching ? 'search-results-info' : undefined}
         />

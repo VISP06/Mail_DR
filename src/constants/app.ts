@@ -22,6 +22,11 @@ export const DEMO_USER = {
  */
 export const ASK_INBOX_MAX_EMBEDDINGS = 200;
 
+/**
+ * Window in days for considering candidate emails in "What should I read first?" and High Priority counters.
+ */
+export const READ_FIRST_DAYS = 30;
+
 export const PALETTE = {
   // Accents
   chartreuse: '#E8F49A',

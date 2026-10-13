@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, RefreshCw, ArrowRight } from 'lucide-react';
+import { Sparkles, RefreshCw, ArrowRight, AlertCircle } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { OrganicBlob } from '../common/OrganicBlob';
 
@@ -7,6 +7,8 @@ export const ReadFirstCard: React.FC = () => {
   const {
     readFirstSuggestions,
     isLoadingSuggestions,
+    readFirstError,
+    readFirstCandidateCount,
     refreshReadFirst,
     emails,
     openEmailById,
@@ -21,9 +23,7 @@ export const ReadFirstCard: React.FC = () => {
     .filter(Boolean)
     .slice(0, 5);
 
-  if (items.length === 0 && !isLoadingSuggestions) {
-    return null;
-  }
+  const hasNoCandidates = !isLoadingSuggestions && !readFirstError && readFirstCandidateCount === 0;
 
   return (
     <section
@@ -55,7 +55,7 @@ export const ReadFirstCard: React.FC = () => {
             onClick={refreshReadFirst}
             disabled={isLoadingSuggestions}
             title="Refresh AI suggestions"
-            className="min-h-[40px] min-w-[40px] px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] flex items-center gap-1.5 hover:bg-[var(--color-hover-tint)] transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] disabled:opacity-50"
+            className="min-h-[40px] min-w-[40px] px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] flex items-center gap-1.5 hover:bg-[var(--color-hover-tint)] transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] disabled:opacity-50 cursor-pointer"
             style={{ color: 'var(--color-text-secondary)' }}
           >
             <RefreshCw
@@ -75,6 +75,36 @@ export const ReadFirstCard: React.FC = () => {
               />
             ))}
           </div>
+        ) : readFirstError ? (
+          <div className="p-4 rounded-2xl border border-rose-500/25 bg-rose-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn">
+            <div className="flex items-center gap-2.5 text-xs text-rose-500">
+              <AlertCircle size={16} className="shrink-0" />
+              <span>Could not load priority suggestions right now.</span>
+            </div>
+            <button
+              type="button"
+              onClick={refreshReadFirst}
+              className="px-3.5 py-1.5 rounded-full text-xs font-semibold border border-rose-500/30 hover:bg-rose-500/10 text-rose-500 flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <RefreshCw size={12} />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : hasNoCandidates ? (
+          <div className="py-5 px-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)]/50 text-center flex flex-col items-center justify-center">
+            <p
+              className="font-accent text-[17px]"
+              style={{ color: 'var(--color-text-body)' }}
+            >
+              Nothing urgent right now.
+            </p>
+            <p
+              className="text-xs mt-0.5"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              All caught up on recent unread emails. Enjoy the quiet.
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {items.map((item) => (
@@ -82,7 +112,7 @@ export const ReadFirstCard: React.FC = () => {
                 key={item!.email.id}
                 type="button"
                 onClick={() => openEmailById(item!.email.id)}
-                className="group text-left p-3.5 rounded-2xl border border-[var(--color-border)] hover:border-[var(--accent-chartreuse)] hover:bg-[var(--color-hover-tint)] transition-all flex flex-col justify-between focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
+                className="group text-left p-3.5 rounded-2xl border border-[var(--color-border)] hover:border-[var(--accent-chartreuse)] hover:bg-[var(--color-hover-tint)] transition-all flex flex-col justify-between focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] cursor-pointer"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">

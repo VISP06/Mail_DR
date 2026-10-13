@@ -5,6 +5,7 @@ import { CategoryFilterChips } from './CategoryFilterChips';
 import { EmailList } from './EmailList';
 import { InboxSearch } from './InboxSearch';
 import { searchEmails } from '../../services/searchService';
+import { READ_FIRST_DAYS } from '../../constants/app';
 
 export const DashboardView: React.FC = () => {
   const {
@@ -38,7 +39,12 @@ export const DashboardView: React.FC = () => {
     if (activeCategoryFilter === 'unread') {
       baseEmails = emails.filter((e) => e.isUnread);
     } else if (activeCategoryFilter === 'high-priority') {
-      baseEmails = emails.filter((e) => e.isUnread && getEmailPriority(e) === 'High');
+      const thirtyDaysAgoMs = Date.now() - READ_FIRST_DAYS * 24 * 60 * 60 * 1000;
+      baseEmails = emails.filter((e) => {
+        if (!e.isUnread || getEmailPriority(e) !== 'High') return false;
+        const emailTime = new Date(e.date).getTime();
+        return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+      });
     } else if (activeCategoryFilter !== 'all') {
       baseEmails = emails.filter((e) => e.categoryId === activeCategoryFilter);
     }
