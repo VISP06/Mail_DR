@@ -6,4 +6,7 @@ export interface EmailProvider {
   blockSender(senderEmail: string): Promise<void>;
   markAsRead(ids: string[]): Promise<void>;
   markAsUnread(ids: string[]): Promise<void>;
+  trashEmails(ids: string[]): Promise<void>;
+  archiveEmails(ids: string[]): Promise<void>;
+  restoreEmails(ids: string[]): Promise<void>;
 }

@@ -4,6 +4,7 @@ import { GENERATED_EMAILS } from '../data/generatedEmails';
 
 export const STORAGE_KEY_READ_OVERRIDES_V1 = 'calm_inbox_read_states_v1';
 export const STORAGE_KEY_USE_LARGE_DATASET = 'calm_inbox_use_large_dataset_v1';
+export const STORAGE_KEY_TRASH_ARCHIVE_STATES_V1 = 'calm_inbox_trash_archive_states_v1';
 
 export class MockEmailProvider implements EmailProvider {
   private initialSampleEmails: Email[];
@@ -696,6 +697,7 @@ export class MockEmailProvider implements EmailProvider {
   async listEmails(): Promise<Email[]> {
     this.refreshEmailsDataset();
     this.loadPersistedReadStates();
+    this.loadPersistedTrashArchiveStates();
     // Return all emails except those from blocked senders
     return this.emails.filter(
       (email) => !this.blockedSenders.has(email.senderEmail.toLowerCase())
@@ -737,6 +739,42 @@ export class MockEmailProvider implements EmailProvider {
       return email;
     });
     this.persistReadStates();
+  }
+
+  // Trash emails
+  async trashEmails(ids: string[]): Promise<void> {
+    const idSet = new Set(ids);
+    this.emails = this.emails.map((email) => {
+      if (idSet.has(email.id)) {
+        return { ...email, isTrashed: true };
+      }
+      return email;
+    });
+    this.persistTrashArchiveStates();
+  }
+
+  // Archive emails
+  async archiveEmails(ids: string[]): Promise<void> {
+    const idSet = new Set(ids);
+    this.emails = this.emails.map((email) => {
+      if (idSet.has(email.id)) {
+        return { ...email, isArchived: true };
+      }
+      return email;
+    });
+    this.persistTrashArchiveStates();
+  }
+
+  // Restore emails (works for both trashed and archived)
+  async restoreEmails(ids: string[]): Promise<void> {
+    const idSet = new Set(ids);
+    this.emails = this.emails.map((email) => {
+      if (idSet.has(email.id)) {
+        return { ...email, isTrashed: false, isArchived: false };
+      }
+      return email;
+    });
+    this.persistTrashArchiveStates();
   }
 
   // Helper methods for unblocking and managing blocked senders
@@ -781,10 +819,52 @@ export class MockEmailProvider implements EmailProvider {
     }
   }
 
+  private persistTrashArchiveStates(): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stateMap: Record<string, { isTrashed?: boolean; isArchived?: boolean }> = {};
+        for (const e of this.emails) {
+          if (e.isTrashed || e.isArchived) {
+            stateMap[e.id] = {
+              isTrashed: Boolean(e.isTrashed),
+              isArchived: Boolean(e.isArchived),
+            };
+          }
+        }
+        localStorage.setItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1, JSON.stringify(stateMap));
+      }
+    } catch (e) {
+      console.warn('Failed to persist email trash/archive state:', e);
+    }
+  }
+
+  private loadPersistedTrashArchiveStates(): void {
+    try {
+      let stateMap: Record<string, { isTrashed?: boolean; isArchived?: boolean }> = {};
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = localStorage.getItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
+        if (raw) {
+          stateMap = JSON.parse(raw) as Record<string, { isTrashed?: boolean; isArchived?: boolean }>;
+        }
+      }
+      this.emails = this.emails.map((e) => {
+        const entry = stateMap[e.id];
+        return {
+          ...e,
+          isTrashed: entry ? Boolean(entry.isTrashed) : Boolean(e.isTrashed || false),
+          isArchived: entry ? Boolean(entry.isArchived) : Boolean(e.isArchived || false),
+        };
+      });
+    } catch (e) {
+      console.warn('Failed to restore email trash/archive state:', e);
+    }
+  }
+
   async resetReadStates(): Promise<void> {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.removeItem(STORAGE_KEY_READ_OVERRIDES_V1);
+        localStorage.removeItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
       }
     } catch (e) {}
   }

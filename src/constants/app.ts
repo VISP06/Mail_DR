@@ -27,6 +27,11 @@ export const ASK_INBOX_MAX_EMBEDDINGS = 200;
  */
 export const READ_FIRST_DAYS = 30;
 
+/**
+ * Constant for protecting recently received emails from cleanup groups.
+ */
+export const PROTECT_RECENT_DAYS = 7;
+
 export const PALETTE = {
   // Accents
   chartreuse: '#E8F49A',

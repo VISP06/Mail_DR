@@ -17,6 +17,8 @@ export interface Email {
   hasAttachment?: boolean;
   userHasReplied?: boolean;
   gmailCategory?: GmailCategory;
+  isTrashed?: boolean;
+  isArchived?: boolean;
 }
 
 export interface EmailCategory {
@@ -42,6 +44,32 @@ export interface EmailProvider {
   blockSender(senderEmail: string): Promise<void>;
   markAsRead(ids: string[]): Promise<void>;
   markAsUnread(ids: string[]): Promise<void>;
+  trashEmails(ids: string[]): Promise<void>;
+  archiveEmails(ids: string[]): Promise<void>;
+  restoreEmails(ids: string[]): Promise<void>;
+}
+
+export interface CleanupGroup {
+  id: string;
+  title: string;
+  description: string;
+  emailIds: string[]; // unprotected only
+  count: number;
+  skippedProtectedCount: number;
+  sampleSenders: string[]; // top 3 by count
+}
+
+export interface CleanupActionRecord {
+  id: string;
+  date: string;
+  groupTitle: string;
+  action: 'trash' | 'archive';
+  emailIds: string[];
+}
+
+export interface CleanupSettings {
+  outdatedAfterDays: number;
+  protectedSenders: string[];
 }
 
 export interface EmailSummary {

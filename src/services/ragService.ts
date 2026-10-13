@@ -116,8 +116,9 @@ export class RagService {
     this.isIndexing = true;
 
     try {
-      // "ASK YOUR INBOX" must embed only the most recent ASK_INBOX_MAX_EMBEDDINGS (200) emails
+      // "ASK YOUR INBOX" must embed only the most recent ASK_INBOX_MAX_EMBEDDINGS (200) emails (excluding trashed/archived)
       const targetEmails = [...emails]
+        .filter((e) => !e.isTrashed && !e.isArchived)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, ASK_INBOX_MAX_EMBEDDINGS);
 
@@ -171,8 +172,9 @@ export class RagService {
   async searchRelevantEmails(query: string, allEmails: Email[], topK = 6): Promise<Email[]> {
     if (!query.trim() || allEmails.length === 0) return [];
 
-    // Limit to the most recent 200 emails
+    // Limit to the most recent 200 emails (excluding trashed/archived)
     const targetEmails = [...allEmails]
+      .filter((e) => !e.isTrashed && !e.isArchived)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, ASK_INBOX_MAX_EMBEDDINGS);
 

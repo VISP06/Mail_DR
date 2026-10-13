@@ -17,13 +17,17 @@ import {
   ListDensity,
   ActiveView,
   ReadFirstItem,
+  CleanupGroup,
+  CleanupActionRecord,
 } from '../types';
 import {
   DEFAULT_CATEGORIES,
   UNCATEGORIZED_CATEGORY,
   UNCATEGORIZED_CATEGORY_ID,
   READ_FIRST_DAYS,
+  PROTECT_RECENT_DAYS,
 } from '../constants/app';
+import { getCleanupGroups, isEmailProtected } from '../services/cleanup';
 import { MockEmailProvider, STORAGE_KEY_USE_LARGE_DATASET } from '../providers/MockEmailProvider';
 import { categorizeEmailsApi, getReadFirstSuggestionsApi } from '../services/geminiService';
 import { RagService } from '../services/ragService';
@@ -36,6 +40,9 @@ const STORAGE_KEY_PRIORITY_RULES_V2 = 'calm_inbox_priority_rules_v2';
 const STORAGE_KEY_BLOCKED_SENDERS_V2 = 'calm_inbox_blocked_senders_v2';
 const STORAGE_KEY_UNSUBSCRIBE_COUNT_V2 = 'calm_inbox_unsubscribe_count_v2';
 const STORAGE_KEY_DEBUG_OVERLAY = 'calm_inbox_debug_overlay_v1';
+const STORAGE_KEY_CLEANUP_OUTDATED_DAYS_V1 = 'calm_inbox_cleanup_outdated_days_v1';
+const STORAGE_KEY_PROTECTED_SENDERS_V1 = 'calm_inbox_cleanup_protected_senders_v1';
+const STORAGE_KEY_CLEANUP_HISTORY_V1 = 'calm_inbox_cleanup_history_v1';
 
 export interface DeleteCategoryOptions {
   categoryId: string;
@@ -148,6 +155,23 @@ interface InboxContextType {
   unsubscribeCount: number;
   recordUnsubscribeAction: () => void;
   deleteSavedUserData: () => Promise<void>;
+
+  // Raw / All emails (including trashed & archived)
+  rawEmails: Email[];
+
+  // Cleanup Feature
+  outdatedAfterDays: number;
+  setOutdatedAfterDays: (days: number) => void;
+  protectedSenders: string[];
+  addProtectedSender: (senderEmail: string) => void;
+  removeProtectedSender: (senderEmail: string) => void;
+  cleanupGroups: CleanupGroup[];
+  cleanupHistory: CleanupActionRecord[];
+  trashEmails: (ids: string[]) => Promise<void>;
+  archiveEmails: (ids: string[]) => Promise<void>;
+  restoreEmails: (ids: string[]) => Promise<void>;
+  recordCleanupAction: (action: Omit<CleanupActionRecord, 'id' | 'date'>) => Promise<string>;
+  undoCleanupAction: (id: string) => Promise<void>;
 
   // Debug (Temporary)
   resetCategoryData: () => Promise<void>;
@@ -262,6 +286,91 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.warn('Failed saving layout debug overlay setting:', err);
     }
   }, []);
+
+  // Cleanup state: outdatedAfterDays (default 30 days)
+  const [outdatedAfterDays, setOutdatedAfterDaysState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const val = localStorage.getItem(STORAGE_KEY_CLEANUP_OUTDATED_DAYS_V1);
+        if (val !== null) {
+          const parsed = Number(val);
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+      } catch {
+        return 30;
+      }
+    }
+    return 30;
+  });
+
+  const setOutdatedAfterDays = useCallback((days: number) => {
+    setOutdatedAfterDaysState(days);
+    try {
+      localStorage.setItem(STORAGE_KEY_CLEANUP_OUTDATED_DAYS_V1, String(days));
+    } catch (err) {
+      console.warn('Failed saving outdatedAfterDays setting:', err);
+    }
+  }, []);
+
+  // Cleanup state: protectedSenders list
+  const [protectedSenders, setProtectedSenders] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const val = localStorage.getItem(STORAGE_KEY_PROTECTED_SENDERS_V1);
+        if (val) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const addProtectedSender = useCallback((senderEmail: string) => {
+    const clean = senderEmail.trim().toLowerCase();
+    if (!clean) return;
+    setProtectedSenders((prev) => {
+      if (prev.some((s) => s.toLowerCase() === clean)) return prev;
+      const next = [...prev, clean];
+      try {
+        localStorage.setItem(STORAGE_KEY_PROTECTED_SENDERS_V1, JSON.stringify(next));
+      } catch (e) {
+        console.warn('Failed saving protected senders:', e);
+      }
+      return next;
+    });
+  }, []);
+
+  const removeProtectedSender = useCallback((senderEmail: string) => {
+    const clean = senderEmail.trim().toLowerCase();
+    setProtectedSenders((prev) => {
+      const next = prev.filter((s) => s.toLowerCase() !== clean);
+      try {
+        localStorage.setItem(STORAGE_KEY_PROTECTED_SENDERS_V1, JSON.stringify(next));
+      } catch (e) {
+        console.warn('Failed saving protected senders:', e);
+      }
+      return next;
+    });
+  }, []);
+
+  // Cleanup state: history of cleanup actions
+  const [cleanupHistory, setCleanupHistory] = useState<CleanupActionRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const val = localStorage.getItem(STORAGE_KEY_CLEANUP_HISTORY_V1);
+        if (val) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
 
   // Large sample dataset toggle state (default true, saved in localStorage)
   const [useLargeDataset, setUseLargeDatasetState] = useState<boolean>(() => {
@@ -523,18 +632,21 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadEmails();
   }, [loadEmails]);
 
-  // Background indexing for RAG embeddings
+  // Background indexing for RAG embeddings (excluding trashed/archived)
   useEffect(() => {
-    if (rawEmails.length > 0) {
-      ragService.indexEmails(rawEmails);
+    const activeEmails = rawEmails.filter((e) => !e.isTrashed && !e.isArchived);
+    if (activeEmails.length > 0) {
+      ragService.indexEmails(activeEmails);
     }
   }, [rawEmails]);
 
-  // Synchronize emails with category assignments and sender overrides
+  // Synchronize emails with category assignments and sender overrides.
+  // Trashed and archived emails disappear from the inbox list, chip counts, unread counts, search, read-first and RAG.
   const resolvedEmails = useMemo(() => {
     const validCategoryIds = new Set(categories.map((c) => c.id));
+    const activeRawEmails = rawEmails.filter((e) => !e.isTrashed && !e.isArchived);
 
-    return rawEmails.map((email) => {
+    return activeRawEmails.map((email) => {
       // 1. Sender correction takes top precedence
       const senderOverride = senderCategoryOverrides[email.senderEmail.toLowerCase()];
       if (senderOverride && validCategoryIds.has(senderOverride)) {
@@ -1103,6 +1215,9 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       localStorage.removeItem(STORAGE_KEY_PRIORITY_RULES_V2);
       localStorage.removeItem(STORAGE_KEY_BLOCKED_SENDERS_V2);
       localStorage.removeItem(STORAGE_KEY_UNSUBSCRIBE_COUNT_V2);
+      localStorage.removeItem(STORAGE_KEY_CLEANUP_OUTDATED_DAYS_V1);
+      localStorage.removeItem(STORAGE_KEY_PROTECTED_SENDERS_V1);
+      localStorage.removeItem(STORAGE_KEY_CLEANUP_HISTORY_V1);
     } catch (e) {}
 
     // Unblock all senders in emailProvider
@@ -1120,6 +1235,9 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSearchQuery('');
     setReadSnackbar(null);
     setLastMarkedReadIds([]);
+    setOutdatedAfterDaysState(30);
+    setProtectedSenders([]);
+    setCleanupHistory([]);
 
     const freshCats = [...DEFAULT_CATEGORIES, UNCATEGORIZED_CATEGORY];
     setCategories(freshCats);
@@ -1167,6 +1285,97 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
     }).length;
   }, [resolvedEmails, getEmailPriority]);
+
+  // Cleanup feature operations
+  const trashEmails = useCallback(async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setRawEmails((prev) =>
+      prev.map((e) => (idSet.has(e.id) ? { ...e, isTrashed: true } : e))
+    );
+    setSelectedEmail((prev) => (prev && idSet.has(prev.id) ? null : prev));
+    try {
+      await emailProvider.trashEmails(ids);
+    } catch (e) {
+      console.warn('Failed to trash emails in provider:', e);
+    }
+  }, []);
+
+  const archiveEmails = useCallback(async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setRawEmails((prev) =>
+      prev.map((e) => (idSet.has(e.id) ? { ...e, isArchived: true } : e))
+    );
+    setSelectedEmail((prev) => (prev && idSet.has(prev.id) ? null : prev));
+    try {
+      await emailProvider.archiveEmails(ids);
+    } catch (e) {
+      console.warn('Failed to archive emails in provider:', e);
+    }
+  }, []);
+
+  const restoreEmails = useCallback(async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setRawEmails((prev) =>
+      prev.map((e) => (idSet.has(e.id) ? { ...e, isTrashed: false, isArchived: false } : e))
+    );
+    try {
+      await emailProvider.restoreEmails(ids);
+    } catch (e) {
+      console.warn('Failed to restore emails in provider:', e);
+    }
+  }, []);
+
+  const recordCleanupAction = useCallback(
+    async (action: Omit<CleanupActionRecord, 'id' | 'date'>): Promise<string> => {
+      const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cleanup-${Date.now()}`;
+      const newRecord: CleanupActionRecord = {
+        ...action,
+        id,
+        date: new Date().toISOString(),
+      };
+      setCleanupHistory((prev) => {
+        const next = [newRecord, ...prev];
+        try {
+          localStorage.setItem(STORAGE_KEY_CLEANUP_HISTORY_V1, JSON.stringify(next));
+        } catch (e) {
+          console.warn('Failed saving cleanup history:', e);
+        }
+        return next;
+      });
+      return id;
+    },
+    []
+  );
+
+  const undoCleanupAction = useCallback(
+    async (id: string): Promise<void> => {
+      const record = cleanupHistory.find((r) => r.id === id);
+      if (!record) return;
+
+      await restoreEmails(record.emailIds);
+
+      setCleanupHistory((prev) => {
+        const next = prev.filter((r) => r.id !== id);
+        try {
+          localStorage.setItem(STORAGE_KEY_CLEANUP_HISTORY_V1, JSON.stringify(next));
+        } catch (e) {
+          console.warn('Failed saving updated cleanup history:', e);
+        }
+        return next;
+      });
+    },
+    [cleanupHistory, restoreEmails]
+  );
+
+  const cleanupGroups = useMemo(() => {
+    return getCleanupGroups(rawEmails, {
+      outdatedAfterDays,
+      protectedSenders,
+    });
+  }, [rawEmails, outdatedAfterDays, protectedSenders]);
 
   const value: InboxContextType = {
     isAuthenticated,
@@ -1245,6 +1454,23 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     unsubscribeCount,
     recordUnsubscribeAction,
     deleteSavedUserData,
+
+    // Raw emails
+    rawEmails,
+
+    // Cleanup Feature
+    outdatedAfterDays,
+    setOutdatedAfterDays,
+    protectedSenders,
+    addProtectedSender,
+    removeProtectedSender,
+    cleanupGroups,
+    cleanupHistory,
+    trashEmails,
+    archiveEmails,
+    restoreEmails,
+    recordCleanupAction,
+    undoCleanupAction,
 
     resetCategoryData,
     layoutDebugOverlay,

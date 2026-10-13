@@ -19,11 +19,13 @@ import {
   ArrowUpDown,
   Inbox,
   Check,
+  Clock,
 } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { EmailCategory, PriorityLevel, ThemeMode } from '../../types';
 import { DeleteCategoryModal } from './DeleteCategoryModal';
-import { UNCATEGORIZED_CATEGORY_ID } from '../../constants/app';
+import { UNCATEGORIZED_CATEGORY_ID, PROTECT_RECENT_DAYS } from '../../constants/app';
+import { isEmailProtected } from '../../services/cleanup';
 
 const COLOR_OPTIONS = [
   '#C8B8D8', // lavender
@@ -40,6 +42,7 @@ export const SettingsView: React.FC = () => {
   const {
     setActiveView,
     emails,
+    rawEmails,
     categories,
     getCategoryName,
     checkCategoryNameDuplicate,
@@ -57,6 +60,10 @@ export const SettingsView: React.FC = () => {
     removePriorityRule,
     sortByPriorityFirst,
     setSortByPriorityFirst,
+    outdatedAfterDays,
+    setOutdatedAfterDays,
+    protectedSenders,
+    cleanupGroups,
     listDensity,
     setListDensity,
     blockedSenders,
@@ -320,43 +327,94 @@ export const SettingsView: React.FC = () => {
       >
         <div className="flex items-center gap-2.5 mb-2">
           <Inbox size={18} className="text-[var(--accent-lavender)]" />
-          <h2 className="font-heading text-base font-semibold tracking-tight">Inbox Sorting</h2>
+          <h2 className="font-heading text-base font-semibold tracking-tight">Inbox</h2>
         </div>
         <p
           className="text-xs mb-4 leading-relaxed"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          Choose how emails are ordered when you open the inbox.
+          Preferences for sorting and managing your emails.
         </p>
 
-        <div
-          className="inline-flex p-1.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] text-xs w-full max-w-md"
-          role="group"
-          aria-label="Default sort selection"
-        >
-          <button
-            type="button"
-            onClick={() => setSortByPriorityFirst(true)}
-            className={`flex-1 py-2 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
-              sortByPriorityFirst
-                ? 'bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] shadow-xs'
-                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-body)]'
-            }`}
+        {/* Inbox Sorting */}
+        <div className="mb-6">
+          <label className="text-xs font-semibold block mb-2 text-[var(--color-text-body)]">
+            Inbox Sorting
+          </label>
+          <div
+            className="inline-flex p-1.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] text-xs w-full max-w-md"
+            role="group"
+            aria-label="Default sort selection"
           >
-            <ArrowUpDown size={14} />
-            <span>Priority First</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSortByPriorityFirst(false)}
-            className={`flex-1 py-2 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
-              !sortByPriorityFirst
-                ? 'bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] shadow-xs'
-                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-body)]'
-            }`}
+            <button
+              type="button"
+              onClick={() => setSortByPriorityFirst(true)}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
+                sortByPriorityFirst
+                  ? 'bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] shadow-xs'
+                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-body)]'
+              }`}
+            >
+              <ArrowUpDown size={14} />
+              <span>Priority First</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortByPriorityFirst(false)}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
+                !sortByPriorityFirst
+                  ? 'bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] shadow-xs'
+                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-body)]'
+              }`}
+            >
+              <span>Newest First</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Consider emails outdated after */}
+        <div className="pt-6 border-t border-[var(--color-border)]">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Clock size={15} className="text-[var(--accent-peach)]" />
+            <label className="text-xs font-semibold text-[var(--color-text-body)]">
+              Consider emails outdated after
+            </label>
+          </div>
+          <p
+            className="text-xs mb-3 leading-relaxed"
+            style={{ color: 'var(--color-text-secondary)' }}
           >
-            <span>Newest First</span>
-          </button>
+            Emails older than this threshold become candidates for cleanup suggestions. Emails received within {PROTECT_RECENT_DAYS} days are always protected.
+          </p>
+
+          <div
+            className="inline-flex p-1.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] text-xs w-full max-w-lg"
+            role="group"
+            aria-label="Consider emails outdated after"
+          >
+            {[
+              { label: '30 days', days: 30 },
+              { label: '90 days', days: 90 },
+              { label: '6 months', days: 180 },
+              { label: '1 year', days: 365 },
+            ].map(({ label, days }) => {
+              const isSelected = outdatedAfterDays === days;
+              return (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => setOutdatedAfterDays(days)}
+                  className={`flex-1 py-2 px-2.5 rounded-xl font-semibold flex items-center justify-center transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
+                    isSelected
+                      ? 'bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] shadow-xs'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-body)]'
+                  }`}
+                >
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -1027,6 +1085,85 @@ export const SettingsView: React.FC = () => {
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Cleanup Feature Diagnostic Groups */}
+        {(() => {
+          let totalUnprotected = 0;
+          let totalSkippedProtected = 0;
+          let leakedProtectedCount = 0;
+
+          for (const g of cleanupGroups) {
+            totalUnprotected += g.count;
+            totalSkippedProtected += g.skippedProtectedCount;
+            // Validate safety: ensure no protected email appears in any cleanup group
+            for (const emailId of g.emailIds) {
+              const email = rawEmails.find((e) => e.id === emailId);
+              if (email && isEmailProtected(email, protectedSenders)) {
+                leakedProtectedCount++;
+              }
+            }
+          }
+          const totalCandidates = totalUnprotected + totalSkippedProtected;
+
+          return (
+            <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-[var(--color-text-body)] block">
+                    Cleanup Feature Groups (Preview)
+                  </span>
+                  <span className="text-[11px] text-[var(--color-text-secondary)]">
+                    Outdated after: {outdatedAfterDays} days • Safety window: {PROTECT_RECENT_DAYS} days
+                  </span>
+                </div>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-body)]">
+                  Total candidates: {totalCandidates} ({totalUnprotected} actionable, {totalSkippedProtected} protected)
+                </span>
+              </div>
+
+              {/* Safety Confirmation / Red Warning */}
+              {leakedProtectedCount > 0 ? (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs flex items-center gap-2 font-semibold">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>
+                    Warning: {leakedProtectedCount} protected {leakedProtectedCount === 1 ? 'email appears' : 'emails appear'} in cleanup groups!
+                  </span>
+                </div>
+              ) : (
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-1.5 font-medium">
+                  <Check size={14} className="shrink-0" />
+                  <span>No protected email appears in any cleanup group. ({totalSkippedProtected} protected candidates safely skipped)</span>
+                </div>
+              )}
+
+              {/* Groups List */}
+              <div className="space-y-2">
+                {cleanupGroups.map((g) => (
+                  <div
+                    key={g.id}
+                    className="p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-xs space-y-1.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-[var(--color-text-body)]">{g.title}</span>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="px-2.5 py-0.5 rounded-md font-semibold bg-[var(--accent-chartreuse)]/25 text-[#292D1E] dark:text-[var(--accent-chartreuse)]">
+                          Count: {g.count}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)]">
+                          Skipped for safety: {g.skippedProtectedCount}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-[var(--color-text-secondary)]">
+                      <span className="font-semibold text-[var(--color-text-body)]">Top senders: </span>
+                      {g.sampleSenders.length > 0 ? g.sampleSenders.join(', ') : 'None'}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           );
