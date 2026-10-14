@@ -815,10 +815,11 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
+    let timeoutTimer: NodeJS.Timeout | null = null;
     try {
       // 20-second timeout race
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
+        timeoutTimer = setTimeout(() => {
           reject(new Error('Suggestions request timed out after 20 seconds'));
         }, 20000);
       });
@@ -834,6 +835,9 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error('[ReadFirst] Failed to fetch read-first suggestions:', err);
       setReadFirstError(true);
     } finally {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
       setIsLoadingSuggestions(false);
     }
   }, [resolvedEmails]);
