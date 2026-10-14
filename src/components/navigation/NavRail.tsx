@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mail, Settings } from 'lucide-react';
+import { Mail, Settings, Sparkles } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { APP_NAME, DEMO_USER } from '../../constants/app';
 import { ActiveView } from '../../types';
@@ -12,9 +12,10 @@ interface NavItemConfig {
   isAvatar?: boolean;
 }
 
-// Structured as a data array so a fourth item can be added later without redesigning
+// Structured as a data array with fourth item Cleanup between Inbox and Settings
 const NAV_ITEMS: NavItemConfig[] = [
   { id: 'dashboard', label: 'Inbox', icon: Mail },
+  { id: 'cleanup', label: 'Cleanup', icon: Sparkles },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'profile', label: 'Profile', isAvatar: true },
 ];
@@ -140,7 +141,7 @@ export const NavRail: React.FC = () => {
             onClick={() => handleNavClick(item.id)}
             aria-label={item.label}
             aria-current={isActive ? 'page' : undefined}
-            className={`min-w-[48px] min-h-[48px] px-4 rounded-xl flex items-center gap-2 text-xs font-medium transition-all ${
+            className={`min-w-[44px] min-h-[44px] px-2 sm:px-3.5 py-1.5 rounded-xl flex items-center justify-center gap-1.5 text-[11px] sm:text-xs font-medium transition-all ${
               isActive
                 ? 'bg-[var(--color-hover-tint)] font-bold text-[var(--color-text-body)]'
                 : 'text-[var(--color-text-secondary)]'

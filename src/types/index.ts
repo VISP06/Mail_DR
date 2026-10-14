@@ -85,7 +85,7 @@ export interface ReadFirstItem {
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type ListDensity = 'comfortable' | 'compact';
-export type ActiveView = 'dashboard' | 'settings' | 'profile';
+export type ActiveView = 'dashboard' | 'cleanup' | 'settings' | 'profile';
 
 export interface RagCitation {
   id: string;

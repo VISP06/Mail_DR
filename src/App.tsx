@@ -6,6 +6,7 @@ import { DashboardView } from './components/dashboard/DashboardView';
 import { EmailDetailView } from './components/email/EmailDetailView';
 import { SettingsView } from './components/settings/SettingsView';
 import { ProfileView } from './components/profile/ProfileView';
+import { CleanupView } from './components/cleanup/CleanupView';
 import { AskInboxPanel } from './components/rag/AskInboxPanel';
 import { ReadSnackbar } from './components/common/ReadSnackbar';
 import { LayoutDebugOverlay } from './components/common/LayoutDebugOverlay';
@@ -73,6 +74,8 @@ const AppContent: React.FC = () => {
               <SettingsView />
             ) : activeView === 'profile' ? (
               <ProfileView />
+            ) : activeView === 'cleanup' ? (
+              <CleanupView />
             ) : (
               <DashboardView />
             )}
