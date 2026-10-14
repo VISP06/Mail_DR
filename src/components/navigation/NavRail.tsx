@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mail, Settings, Sparkles } from 'lucide-react';
+import { Mail, Settings, BrushCleaning } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { APP_NAME, DEMO_USER } from '../../constants/app';
 import { ActiveView } from '../../types';
@@ -15,7 +15,7 @@ interface NavItemConfig {
 // Structured as a data array with fourth item Cleanup between Inbox and Settings
 const NAV_ITEMS: NavItemConfig[] = [
   { id: 'dashboard', label: 'Inbox', icon: Mail },
-  { id: 'cleanup', label: 'Cleanup', icon: Sparkles },
+  { id: 'cleanup', label: 'Cleanup', icon: BrushCleaning },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'profile', label: 'Profile', isAvatar: true },
 ];

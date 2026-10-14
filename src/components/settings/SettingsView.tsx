@@ -1114,10 +1114,10 @@ export const SettingsView: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="text-xs font-bold text-[var(--color-text-body)] block">
-                    Cleanup Feature Groups (Preview)
+                    Cleanup Feature Groups (8 Built-in Groups)
                   </span>
                   <span className="text-[11px] text-[var(--color-text-secondary)]">
-                    Outdated after: {outdatedAfterDays} days • Safety window: {PROTECT_RECENT_DAYS} days
+                    Outdated after: {outdatedAfterDays} days (Verification codes: 7 days) • Safety window: {PROTECT_RECENT_DAYS} days
                   </span>
                 </div>
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-body)]">

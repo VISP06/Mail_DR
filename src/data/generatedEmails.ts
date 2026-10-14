@@ -95,7 +95,25 @@ const SOCIAL_TOPICS = [
   { subj: 'Elena finished reading "The Architecture of Happiness"', body: 'See what your friends are reading this month on your virtual bookshelf.' },
   { subj: 'Carlos Rivera gave you kudos on your morning trail run', body: 'Great job completing "Headlands Coastal 8.2 km Loop" today!' },
   { subj: 'David Kim mentioned you in a comment on PR #142', body: '"@maya what do you think of this color variable contrast ratio?"' },
-  { subj: 'New collaborator invited you to inspect a shared design file', body: 'View the prototype and inspect CSS properties in the shared team workspace.' },
+  { subj: 'New collaborator requested your review on a shared design file', body: 'View the prototype and inspect CSS properties in the shared team workspace.' },
+];
+
+// 5 Calendar & Event Senders
+const CALENDAR_SENDERS = [
+  { name: 'Google Calendar', email: 'calendar-notification@google.com' },
+  { name: 'Luma Events', email: 'invites@lu.ma' },
+  { name: 'Zoom Meetings', email: 'no-reply@zoom.us' },
+  { name: 'Cal.com Scheduling', email: 'notifications@cal.com' },
+  { name: 'Eventbrite Community', email: 'invitations@eventbrite.com' },
+];
+
+const CALENDAR_TOPICS = [
+  { subj: 'Invitation: Product roadmap sync @ Wed Oct 15', body: 'You have been invited to Product roadmap sync with Sarah Lin and David Kim.' },
+  { subj: 'Reminder: Quarterly engineering review starts at 2:00 PM', body: 'This is a quick reminder that the quarterly engineering review begins in 30 minutes in Room 4A.' },
+  { subj: 'Webinar: Modern typography systems and fluid design tokens', body: 'Your registration is confirmed. Join the live webinar session tomorrow.' },
+  { subj: 'RSVP confirmation: Design Systems Community Meetup', body: 'Thanks for your RSVP. We look forward to seeing you at the community space on Thursday evening.' },
+  { subj: 'Calendar invite: 1-on-1 monthly design sync with Jordan Blake', body: 'Updated invitation for monthly design feedback and portfolio review session.' },
+  { subj: 'Event reminder: Annual studio retreat and planning kickoff', body: 'Please review the itinerary and RSVP by Friday afternoon.' },
 ];
 
 // Automated Notifications & Verification Codes
@@ -241,6 +259,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'promotions',
       categorySource: 'rule',
       gmailCategory: 'promotions',
+      senderKind: 'promotion',
       unsubscribeUrl: hasUnsub ? `https://${sender.domain}/unsubscribe?id=usr_${1000 + i}` : undefined,
     });
   }
@@ -269,6 +288,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'promotions',
       categorySource: 'rule',
       gmailCategory: 'promotions',
+      senderKind: 'newsletter',
       unsubscribeUrl: `https://${sender.domain}/opt-out?email=maya@example.com`,
     });
   }
@@ -297,6 +317,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'updates',
       categorySource: 'rule',
       gmailCategory: 'social',
+      senderKind: 'social',
     });
   }
 
@@ -304,14 +325,17 @@ export function generateSampleEmails(): Email[] {
   for (let i = 0; i < 80; i++) {
     const sender = AUTOMATED_SENDERS[i % AUTOMATED_SENDERS.length];
     const isCode = i % 3 === 0;
+    const isShip = !isCode && (i % 2 === 1);
     const code = Math.floor(100000 + prng() * 900000);
     const subj = isCode
-      ? `Your verification code is ${code}`
-      : i % 2 === 0
-      ? `Deployment build #284${i} succeeded in 32s`
-      : `Shipping update: Package delivered to front porch`;
+      ? (i % 6 === 0 ? `Your verification code is ${code}` : i % 6 === 3 ? `One-time security code for sign-in: ${code}` : `Login alert: Verify your new device`)
+      : isShip
+      ? (i % 4 === 1 ? `Your order has shipped via UPS` : `Delivered: Package left at front porch`)
+      : `Deployment build #284${i} succeeded in 32s`;
     const snippet = isCode
       ? `Use verification code ${code} to complete your authentication. Code expires in 10 minutes.`
+      : isShip
+      ? `Your shipment tracking status has been updated. Package is out for delivery or delivered.`
       : `Status update from ${sender.name}. All systems operational and signed.`;
 
     const isUnread = prng() < 0.10;
@@ -334,6 +358,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'updates',
       categorySource: 'rule',
       gmailCategory: 'updates',
+      senderKind: isCode ? 'verification' : isShip ? 'shipping' : 'automated',
     });
   }
 
@@ -364,6 +389,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'bills',
       categorySource: 'rule',
       gmailCategory: 'updates',
+      senderKind: 'billing',
     });
   }
 
@@ -391,6 +417,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'work',
       categorySource: 'rule',
       gmailCategory: 'primary',
+      senderKind: 'work',
     });
   }
 
@@ -418,6 +445,7 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'personal',
       categorySource: 'rule',
       gmailCategory: 'primary',
+      senderKind: 'personal',
     });
   }
 
@@ -447,6 +475,35 @@ export function generateSampleEmails(): Email[] {
       categoryId: 'updates',
       categorySource: 'rule',
       gmailCategory: 'forums',
+      senderKind: 'community',
+    });
+  }
+
+  // 9. CALENDAR INVITES & EVENT REMINDERS (~2.5% = 20)
+  for (let i = 0; i < 20; i++) {
+    const sender = CALENDAR_SENDERS[i % CALENDAR_SENDERS.length];
+    const topic = CALENDAR_TOPICS[i % CALENDAR_TOPICS.length];
+    const isUnread = prng() < 0.10;
+    const isStarred = prng() < 0.05;
+    const hasAttachment = false;
+    const userHasReplied = false;
+
+    emails.push({
+      id: `gen-${String(idCounter++).padStart(4, '0')}`,
+      senderName: sender.name,
+      senderEmail: sender.email,
+      subject: topic.subj,
+      snippet: topic.body,
+      bodyText: `Calendar Notification:\n\n${topic.body}\n\nOrganizer: ${sender.name}\nLocation: Virtual sync room\n\nPlease let the host know if you cannot attend.`,
+      date: generateDate(),
+      isUnread,
+      isStarred,
+      hasAttachment,
+      userHasReplied,
+      categoryId: 'updates',
+      categorySource: 'rule',
+      gmailCategory: 'updates',
+      senderKind: 'calendar',
     });
   }
 
@@ -465,5 +522,6 @@ export const GENERATED_COUNTS = {
   work: 80,
   personal: 48,
   other: 32,
-  total: 800,
+  calendar: 20,
+  total: 820,
 };

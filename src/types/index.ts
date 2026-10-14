@@ -19,6 +19,7 @@ export interface Email {
   gmailCategory?: GmailCategory;
   isTrashed?: boolean;
   isArchived?: boolean;
+  senderKind?: string;
 }
 
 export interface EmailCategory {

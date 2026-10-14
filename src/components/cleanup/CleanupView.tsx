@@ -1,6 +1,13 @@
 import React, { useState, useMemo, useRef } from 'react';
 import {
-  Sparkles,
+  BrushCleaning,
+  KeyRound,
+  PackageCheck,
+  CalendarClock,
+  Newspaper,
+  Tag,
+  Users,
+  Bell,
   Trash2,
   Archive,
   Eye,
@@ -11,11 +18,15 @@ import {
   X,
   Check,
   AlertCircle,
+  LogOut,
+  MailCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { CleanupGroup, Email } from '../../types';
 import { OrganicBlob } from '../common/OrganicBlob';
 import { useNavBreakpoint } from '../../hooks/useMediaQuery';
+import { isEmailProtected } from '../../services/cleanup';
 
 export const CleanupView: React.FC = () => {
   const {
@@ -162,6 +173,30 @@ export const CleanupView: React.FC = () => {
     }));
   }, [keepGroup, emailMap]);
 
+  // Small icon per built-in cleanup group
+  const getGroupIcon = (groupId: string) => {
+    switch (groupId) {
+      case 'verification-codes':
+        return <KeyRound size={16} className="text-[var(--accent-peach)]" />;
+      case 'delivered-orders':
+        return <PackageCheck size={16} className="text-[#5B7553] dark:text-[var(--accent-chartreuse)]" />;
+      case 'calendar-invites':
+        return <CalendarClock size={16} className="text-[#886B9A] dark:text-[var(--accent-lavender)]" />;
+      case 'newsletters':
+        return <Newspaper size={16} className="text-[#B95D82] dark:text-[var(--accent-pink)]" />;
+      case 'old-promotions':
+        return <Tag size={16} className="text-[var(--accent-peach)]" />;
+      case 'social-notifications':
+        return <Users size={16} className="text-[#886B9A] dark:text-[var(--accent-lavender)]" />;
+      case 'automated-notifications':
+        return <Bell size={16} className="text-[#5B7553] dark:text-[var(--accent-sage)]" />;
+      case 'unread-long-time':
+        return <Clock size={16} className="text-[#B95D82] dark:text-[var(--accent-pink)]" />;
+      default:
+        return <BrushCleaning size={16} className="text-[var(--color-text-body)]" />;
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-32 select-text">
       {/* =========================================================================
@@ -172,7 +207,7 @@ export const CleanupView: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
               <span className="w-8 h-8 rounded-xl flex items-center justify-center bg-[var(--accent-chartreuse)]/25 text-[#292D1E] dark:text-[var(--accent-chartreuse)]">
-                <Sparkles size={18} />
+                <BrushCleaning size={18} />
               </span>
               <h1 className="font-heading text-2xl sm:text-3xl font-extrabold tracking-tight">
                 Cleanup
@@ -187,7 +222,7 @@ export const CleanupView: React.FC = () => {
               className="font-accent text-[17px] leading-relaxed"
               style={{ color: 'var(--color-text-secondary)' }}
             >
-              Nothing is deleted for 30 days.
+              Trashed emails can be restored for 30 days.
             </p>
           </div>
 
@@ -244,6 +279,9 @@ export const CleanupView: React.FC = () => {
                   {/* Left info column */}
                   <div className="space-y-2 flex-1 min-w-0">
                     <div className="flex items-center gap-2.5">
+                      <span className="w-7 h-7 rounded-xl flex items-center justify-center bg-[var(--color-bg)] border border-[var(--color-border)] shrink-0 shadow-2xs">
+                        {getGroupIcon(group.id)}
+                      </span>
                       <h2 className="font-heading text-lg font-bold tracking-tight text-[var(--color-text-body)]">
                         {group.title}
                       </h2>
@@ -476,9 +514,14 @@ export const CleanupView: React.FC = () => {
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
                   Reviewing {reviewGroup.count} emails
                 </span>
-                <h3 id="review-sheet-title" className="font-heading text-lg font-bold tracking-tight">
-                  {reviewGroup.title}
-                </h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="w-6 h-6 rounded-lg flex items-center justify-center bg-[var(--color-bg)] border border-[var(--color-border)] shrink-0">
+                    {getGroupIcon(reviewGroup.id)}
+                  </span>
+                  <h3 id="review-sheet-title" className="font-heading text-lg font-bold tracking-tight">
+                    {reviewGroup.title}
+                  </h3>
+                </div>
                 <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
                   Showing 10 sample emails from this group.
                 </p>
@@ -635,7 +678,7 @@ export const CleanupView: React.FC = () => {
                   {confirmState.action === 'trash'
                     ? `Move ${confirmState.group.count} ${
                         confirmState.group.count === 1 ? 'email' : 'emails'
-                      } to Trash? Gmail deletes trashed emails permanently after 30 days. You can undo this right away.`
+                      } to Trash? Trashed emails can be restored for 30 days. You can undo this right away.`
                     : `Archive ${confirmState.group.count} ${
                         confirmState.group.count === 1 ? 'email' : 'emails'
                       }? They leave your inbox but stay searchable.`}

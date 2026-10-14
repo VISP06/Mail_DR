@@ -32,6 +32,11 @@ export const READ_FIRST_DAYS = 30;
  */
 export const PROTECT_RECENT_DAYS = 7;
 
+/**
+ * Separate age threshold in days for considering verification codes and sign-in alerts outdated.
+ */
+export const VERIFICATION_CODE_OUTDATED_DAYS = 7;
+
 export const PALETTE = {
   // Accents
   chartreuse: '#E8F49A',
