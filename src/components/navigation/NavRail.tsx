@@ -27,6 +27,7 @@ export const NavRail: React.FC = () => {
     setActiveView,
     setSelectedEmail,
     emails,
+    setHubShownThisSession,
   } = useInbox();
 
   const unreadCount = emails.filter((e) => e.isUnread).length;
@@ -34,6 +35,7 @@ export const NavRail: React.FC = () => {
   const handleNavClick = (viewId: ActiveView) => {
     setActiveView(viewId);
     setSelectedEmail(null);
+    setHubShownThisSession(true);
   };
 
   // Width 600px and above: Render ONLY the Desktop Navigation Rail

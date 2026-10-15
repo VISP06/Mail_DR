@@ -1,4 +1,4 @@
-import { Email, EmailCategory, EmailSummary, ReadFirstItem, RagCitation, CategorySource } from '../types';
+import { Email, EmailCategory, EmailSummary, RagCitation, CategorySource } from '../types';
 import { UNCATEGORIZED_CATEGORY_ID } from '../constants/app';
 
 export interface CategorizeResult {
@@ -116,31 +116,6 @@ export async function summarizeEmailApi(email: Email): Promise<EmailSummary> {
   }
 }
 
-export async function getReadFirstSuggestionsApi(emails: Email[]): Promise<ReadFirstItem[]> {
-  try {
-    const res = await fetch('/api/ai/read-first', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`Read-first suggestions failed (${res.status})`);
-    }
-
-    const data = await res.json();
-    return data.suggestions || [];
-  } catch (err) {
-    console.warn('API read-first unavailable, picking top unread items:', err);
-    return emails
-      .filter((e) => e.isUnread)
-      .slice(0, 4)
-      .map((e) => ({
-        emailId: e.id,
-        reason: `Unread note from ${e.senderName}: "${e.subject}"`,
-      }));
-  }
-}
 
 export async function embedTextsApi(texts: string[]): Promise<number[][]> {
   try {

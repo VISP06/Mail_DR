@@ -10,6 +10,7 @@ export const CategoryFilterChips: React.FC = () => {
     setActiveCategoryFilter,
     emails,
     highPriorityUnreadCount,
+    getEmailPriority,
     isCategorizing,
     categorizeProgress,
     categorizeError,
@@ -19,7 +20,7 @@ export const CategoryFilterChips: React.FC = () => {
   // Compute total unread count (for Unread chip)
   const unreadTotal = emails.filter((e) => e.isUnread).length;
 
-  // Exact same filtering logic for category unread counts
+  // Category unread counts
   const categoryUnreadCounts = React.useMemo(() => {
     const counts: Record<string, number> = {};
     for (const cat of categories) {
@@ -29,6 +30,21 @@ export const CategoryFilterChips: React.FC = () => {
     }
     return counts;
   }, [categories, emails]);
+
+  // High-priority unread counts per category (last 30 days)
+  const categoryHighPriorityCounts = React.useMemo(() => {
+    const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const counts: Record<string, number> = {};
+    for (const cat of categories) {
+      counts[cat.id] = emails.filter((e) => {
+        if (e.categoryId !== cat.id || !e.isUnread || e.isTrashed || e.isArchived) return false;
+        if (getEmailPriority(e) !== 'High') return false;
+        const emailTime = new Date(e.date).getTime();
+        return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+      }).length;
+    }
+    return counts;
+  }, [categories, emails, getEmailPriority]);
 
   // Total emails per category (to hide Uncategorized if 0)
   const categoryTotalCounts = React.useMemo(() => {
@@ -212,6 +228,7 @@ export const CategoryFilterChips: React.FC = () => {
 
           const isSelected = activeCategoryFilter === cat.id;
           const unread = categoryUnreadCounts[cat.id] || 0;
+          const highPriorityInCat = categoryHighPriorityCounts[cat.id] || 0;
 
           return (
             <button
@@ -233,6 +250,14 @@ export const CategoryFilterChips: React.FC = () => {
               />
               <span>{cat.name}</span>
               <span className="text-[11px] opacity-80">({totalInCat})</span>
+              {highPriorityInCat > 0 && (
+                <span
+                  className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#E07A5F]/20 text-[#9C4C14] dark:text-[var(--accent-peach)] border border-[#E07A5F]/30"
+                  title={`${highPriorityInCat} high priority`}
+                >
+                  {highPriorityInCat} high priority
+                </span>
+              )}
               {unread > 0 && (
                 <span
                   className="px-1.5 py-0.2 rounded-full text-[10px] font-bold"

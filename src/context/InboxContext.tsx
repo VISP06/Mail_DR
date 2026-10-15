@@ -16,7 +16,6 @@ import {
   ThemeMode,
   ListDensity,
   ActiveView,
-  ReadFirstItem,
   CleanupGroup,
   CleanupActionRecord,
 } from '../types';
@@ -29,7 +28,7 @@ import {
 } from '../constants/app';
 import { getCleanupGroups, isEmailProtected } from '../services/cleanup';
 import { MockEmailProvider, STORAGE_KEY_USE_LARGE_DATASET } from '../providers/MockEmailProvider';
-import { categorizeEmailsApi, getReadFirstSuggestionsApi } from '../services/geminiService';
+import { categorizeEmailsApi } from '../services/geminiService';
 import { RagService } from '../services/ragService';
 
 // Versioned storage keys
@@ -114,12 +113,9 @@ interface InboxContextType {
   blockSender: (senderEmail: string) => Promise<void>;
   unblockSender: (senderEmail: string) => Promise<void>;
 
-  // Read First & AI State
-  readFirstSuggestions: ReadFirstItem[];
-  isLoadingSuggestions: boolean;
-  readFirstError: boolean;
-  readFirstCandidateCount: number;
-  refreshReadFirst: () => Promise<void>;
+  // Startup Category Hub
+  hubShownThisSession: boolean;
+  setHubShownThisSession: (shown: boolean) => void;
 
   // Categorization Progress & Retry
   isCategorizing: boolean;
@@ -187,7 +183,15 @@ const emailProvider = new MockEmailProvider();
 const ragService = RagService.getInstance();
 
 export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticatedState] = useState<boolean>(false);
+  const [hubShownThisSession, setHubShownThisSession] = useState<boolean>(false);
+
+  const setIsAuthenticated = useCallback((val: boolean) => {
+    setIsAuthenticatedState(val);
+    if (!val) {
+      setHubShownThisSession(false);
+    }
+  }, []);
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
 
   const [unsubscribeCount, setUnsubscribeCount] = useState<number>(() => {
@@ -247,10 +251,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [sortByPriorityFirst, setSortByPriorityFirst] = useState<boolean>(true);
   const [blockedSenders, setBlockedSenders] = useState<string[]>([]);
 
-  const [readFirstSuggestions, setReadFirstSuggestions] = useState<ReadFirstItem[]>([]);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
-  const [readFirstError, setReadFirstError] = useState<boolean>(false);
-  const [readFirstCandidateCount, setReadFirstCandidateCount] = useState<number>(0);
 
   // Categorization progress & error state
   const [isCategorizing, setIsCategorizing] = useState<boolean>(false);
@@ -794,59 +794,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [priorityRules]
   );
 
-  // Read-first suggestions: must only consider unread emails from the last 30 days
-  const refreshReadFirst = useCallback(async () => {
-    if (resolvedEmails.length === 0) return;
-    setIsLoadingSuggestions(true);
-    setReadFirstError(false);
-
-    const thirtyDaysAgoMs = Date.now() - READ_FIRST_DAYS * 24 * 60 * 60 * 1000;
-    const recentUnreadEmails = resolvedEmails.filter((e) => {
-      if (!e.isUnread) return false;
-      const emailTime = new Date(e.date).getTime();
-      return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
-    });
-
-    setReadFirstCandidateCount(recentUnreadEmails.length);
-
-    if (recentUnreadEmails.length === 0) {
-      setReadFirstSuggestions([]);
-      setIsLoadingSuggestions(false);
-      return;
-    }
-
-    let timeoutTimer: NodeJS.Timeout | null = null;
-    try {
-      // 20-second timeout race
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutTimer = setTimeout(() => {
-          reject(new Error('Suggestions request timed out after 20 seconds'));
-        }, 20000);
-      });
-
-      const suggestions = await Promise.race([
-        getReadFirstSuggestionsApi(recentUnreadEmails),
-        timeoutPromise,
-      ]);
-
-      setReadFirstSuggestions(suggestions);
-      setReadFirstError(false);
-    } catch (err: any) {
-      console.error('[ReadFirst] Failed to fetch read-first suggestions:', err);
-      setReadFirstError(true);
-    } finally {
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer);
-      }
-      setIsLoadingSuggestions(false);
-    }
-  }, [resolvedEmails]);
-
-  useEffect(() => {
-    if (resolvedEmails.length > 0 && readFirstSuggestions.length === 0) {
-      refreshReadFirst();
-    }
-  }, [resolvedEmails, readFirstSuggestions.length, refreshReadFirst]);
 
   const markAsRead = useCallback(async (id: string, isUnread = false) => {
     setRawEmails((prev) => prev.map((e) => (e.id === id ? { ...e, isUnread } : e)));
@@ -1253,6 +1200,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ]);
     setActiveCategoryFilter('all');
     setActiveView('dashboard');
+    setHubShownThisSession(false);
 
     await loadEmails();
     hasTriggeredInitialSort.current = false;
@@ -1436,11 +1384,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     blockSender,
     unblockSender,
 
-    readFirstSuggestions,
-    isLoadingSuggestions,
-    readFirstError,
-    readFirstCandidateCount,
-    refreshReadFirst,
+    hubShownThisSession,
+    setHubShownThisSession,
 
     isCategorizing,
     categorizeProgress,
