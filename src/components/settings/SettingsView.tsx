@@ -71,11 +71,14 @@ export const SettingsView: React.FC = () => {
     themeMode,
     setThemeMode,
     resetCategoryData,
+    resetSampleEmails,
     layoutDebugOverlay,
     setLayoutDebugOverlay,
     useLargeDataset,
     setUseLargeDataset,
   } = useInbox();
+
+  const [isResettingEmails, setIsResettingEmails] = useState(false);
 
   // Category editing state
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
@@ -898,20 +901,41 @@ export const SettingsView: React.FC = () => {
             <h2 className="font-heading text-base font-semibold tracking-tight">Debug (temporary)</h2>
           </div>
 
-          <button
-            type="button"
-            onClick={async () => {
-              if (window.confirm('Reset all categories and assignments back to factory state?')) {
-                setIsResetting(true);
-                await resetCategoryData();
-                setIsResetting(false);
-              }
-            }}
-            disabled={isResetting}
-            className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-rose-400/40 text-rose-500 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
-          >
-            {isResetting ? 'Resetting...' : 'Reset category data'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (
+                  window.confirm(
+                    'Reset sample emails back to their original read, unread, trashed, and archived states? (Categories, rules, and protected senders will not be changed)'
+                  )
+                ) {
+                  setIsResettingEmails(true);
+                  await resetSampleEmails();
+                  setIsResettingEmails(false);
+                }
+              }}
+              disabled={isResettingEmails}
+              className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+            >
+              {isResettingEmails ? 'Resetting emails...' : 'Reset sample emails'}
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                if (window.confirm('Reset all categories and assignments back to factory state?')) {
+                  setIsResetting(true);
+                  await resetCategoryData();
+                  setIsResetting(false);
+                }
+              }}
+              disabled={isResetting}
+              className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-rose-400/40 text-rose-500 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+            >
+              {isResetting ? 'Resetting...' : 'Reset category data'}
+            </button>
+          </div>
         </div>
 
         <p

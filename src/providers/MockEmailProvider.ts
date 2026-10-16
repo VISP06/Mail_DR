@@ -868,4 +868,42 @@ export class MockEmailProvider implements EmailProvider {
       }
     } catch (e) {}
   }
+
+  async resetSampleEmails(): Promise<Email[]> {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem(STORAGE_KEY_READ_OVERRIDES_V1);
+        localStorage.removeItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
+      }
+    } catch (e) {
+      console.warn('Failed to clear persisted email states on reset:', e);
+    }
+
+    let useLarge = true;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const val = localStorage.getItem(STORAGE_KEY_USE_LARGE_DATASET);
+        if (val !== null) {
+          useLarge = JSON.parse(val);
+        }
+      }
+    } catch (e) {}
+
+    if (useLarge) {
+      const existingIds = new Set(this.initialSampleEmails.map((e) => e.id));
+      const filteredGenerated = GENERATED_EMAILS.filter((e) => !existingIds.has(e.id));
+      this.emails = [
+        ...this.initialSampleEmails.map((e) => ({ ...e, isTrashed: false, isArchived: false })),
+        ...filteredGenerated.map((e) => ({ ...e, isTrashed: false, isArchived: false })),
+      ];
+    } else {
+      this.emails = this.initialSampleEmails.map((e) => ({
+        ...e,
+        isTrashed: false,
+        isArchived: false,
+      }));
+    }
+
+    return [...this.emails];
+  }
 }

@@ -9,4 +9,5 @@ export interface EmailProvider {
   trashEmails(ids: string[]): Promise<void>;
   archiveEmails(ids: string[]): Promise<void>;
   restoreEmails(ids: string[]): Promise<void>;
+  resetSampleEmails?(): Promise<Email[]>;
 }

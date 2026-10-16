@@ -48,6 +48,8 @@ export interface EmailProvider {
   trashEmails(ids: string[]): Promise<void>;
   archiveEmails(ids: string[]): Promise<void>;
   restoreEmails(ids: string[]): Promise<void>;
+  markAllAsRead?(): Promise<void>;
+  resetReadStates?(): Promise<void>;
 }
 
 export interface CleanupGroup {

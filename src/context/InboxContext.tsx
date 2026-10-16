@@ -171,6 +171,7 @@ interface InboxContextType {
 
   // Debug (Temporary)
   resetCategoryData: () => Promise<void>;
+  resetSampleEmails: () => Promise<void>;
   layoutDebugOverlay: boolean;
   setLayoutDebugOverlay: (val: boolean) => void;
   useLargeDataset: boolean;
@@ -1147,6 +1148,15 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, 200);
   }, [loadEmails, runCategorization]);
 
+  // STEP 9b: Reset Sample Emails (Debug - restores read/unread, trash, archive states)
+  const resetSampleEmails = useCallback(async () => {
+    if (emailProvider.resetSampleEmails) {
+      const fresh = await emailProvider.resetSampleEmails();
+      setRawEmails(fresh);
+      setSelectedEmail(null);
+    }
+  }, []);
+
   const recordUnsubscribeAction = useCallback(() => {
     setUnsubscribeCount((prev) => {
       const next = prev + 1;
@@ -1422,6 +1432,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     undoCleanupAction,
 
     resetCategoryData,
+    resetSampleEmails,
     layoutDebugOverlay,
     setLayoutDebugOverlay,
     useLargeDataset,

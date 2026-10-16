@@ -214,6 +214,18 @@ body {
   transition-duration: 100ms;
 }
 
+/* Card Decorative Art Drift */
+.hub-card-art {
+  transform: rotate(-8deg);
+  transition: transform 300ms ease-out;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hub-card:hover .hub-card-art {
+    transform: translate(4px, 4px) rotate(-6deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hub-animate-entrance,
   .hub-exiting,
@@ -225,5 +237,10 @@ body {
   .hub-card:hover,
   .hub-card:active {
     transform: none !important;
+  }
+  .hub-card-art,
+  .hub-card:hover .hub-card-art {
+    transform: rotate(-8deg) !important;
+    transition: none !important;
   }
 }
