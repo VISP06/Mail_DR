@@ -17,7 +17,9 @@ import { ConfirmationModal } from '../common/ConfirmationModal';
 export const ProfileView: React.FC = () => {
   const {
     setActiveView,
-    setIsAuthenticated,
+    firebaseUser,
+    signInWithGoogle,
+    signOut,
     emails,
     blockedSenders,
     unsubscribeCount,
@@ -26,6 +28,7 @@ export const ProfileView: React.FC = () => {
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
 
   // Computed inbox stats from local data
   const emailsSortedCount = emails.filter(
@@ -39,9 +42,18 @@ export const ProfileView: React.FC = () => {
     setShowDeleteModal(false);
   };
 
-  const handleSignOut = () => {
-    setIsAuthenticated(false);
+  const handleSignOut = async () => {
+    await signOut();
   };
+
+  const userInitial = firebaseUser?.displayName
+    ? firebaseUser.displayName.charAt(0).toUpperCase()
+    : firebaseUser?.email
+    ? firebaseUser.email.charAt(0).toUpperCase()
+    : DEMO_USER.initial;
+
+  const userName = firebaseUser?.displayName || (firebaseUser ? 'Google User' : DEMO_USER.name);
+  const userEmail = firebaseUser?.email || DEMO_USER.email;
 
   return (
     <div className="max-w-4xl mx-auto py-2 space-y-8 pb-32">
@@ -65,45 +77,79 @@ export const ProfileView: React.FC = () => {
         className="p-6 sm:p-7 rounded-[28px] border border-[var(--color-border)] transition-colors flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left"
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold border border-[var(--color-border)] shrink-0 shadow-xs"
-          style={{
-            backgroundColor: 'var(--accent-chartreuse)',
-            color: '#292D1E',
-          }}
-        >
-          {DEMO_USER.initial}
-        </div>
+        {firebaseUser?.photoURL ? (
+          <img
+            src={firebaseUser.photoURL}
+            alt={userName}
+            className="w-16 h-16 rounded-full border border-[var(--color-border)] shrink-0 object-cover shadow-xs"
+          />
+        ) : (
+          <div
+            className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold border border-[var(--color-border)] shrink-0 shadow-xs"
+            style={{
+              backgroundColor: 'var(--accent-chartreuse)',
+              color: '#292D1E',
+            }}
+          >
+            {userInitial}
+          </div>
+        )}
 
         <div className="flex-1 min-w-0">
           <h2 className="font-heading text-xl font-extrabold tracking-tight text-[var(--color-text-body)]">
-            {DEMO_USER.name}
+            {userName}
           </h2>
           <p
             className="text-xs font-medium mt-0.5"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            {DEMO_USER.email}
+            {userEmail}
           </p>
 
           <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-[var(--color-border)] bg-[var(--color-hover-tint)]">
-            <span className="w-2 h-2 rounded-full bg-[var(--accent-chartreuse)]" />
+            <span
+              className={`w-2 h-2 rounded-full ${
+                firebaseUser ? 'bg-emerald-500 animate-pulse' : 'bg-[var(--accent-chartreuse)]'
+              }`}
+            />
             <span style={{ color: 'var(--color-text-secondary)' }}>
-              Demo Account
+              {firebaseUser ? 'Firebase Cloud Synced' : 'Demo Mode (Local State)'}
             </span>
           </div>
         </div>
 
-        {/* Sign Out Button */}
-        <button
-          type="button"
-          onClick={handleSignOut}
-          className="min-h-[44px] px-4 py-2 rounded-full border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] text-xs font-semibold flex items-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] self-center sm:self-start"
-          title="Sign out and return to sign-in screen"
-        >
-          <LogOut size={14} />
-          <span>Sign out</span>
-        </button>
+        {/* Action Button */}
+        <div className="flex flex-col sm:flex-row items-center gap-2 self-center sm:self-start">
+          {!firebaseUser && (
+            <button
+              type="button"
+              disabled={isConnectingGoogle}
+              onClick={async () => {
+                try {
+                  setIsConnectingGoogle(true);
+                  await signInWithGoogle();
+                } catch (e) {
+                  console.warn('Connect with Google failed:', e);
+                } finally {
+                  setIsConnectingGoogle(false);
+                }
+              }}
+              className="min-h-[44px] px-4 py-2 rounded-full border border-[var(--color-border)] bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] text-xs font-semibold flex items-center gap-2 transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+            >
+              <span>{isConnectingGoogle ? 'Connecting...' : 'Sync to Firebase'}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="min-h-[44px] px-4 py-2 rounded-full border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] text-xs font-semibold flex items-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
+            title="Sign out and return to sign-in screen"
+          >
+            <LogOut size={14} />
+            <span>Sign out</span>
+          </button>
+        </div>
       </section>
 
       {/* 2. Connected Account Card */}
@@ -113,19 +159,23 @@ export const ProfileView: React.FC = () => {
       >
         <div className="flex items-center gap-2.5 mb-2">
           <Mail size={18} className="text-[var(--accent-lavender)]" />
-          <h2 className="text-base font-bold tracking-tight">Connected Account</h2>
+          <h2 className="text-base font-bold tracking-tight">Cloud Database &amp; Auth</h2>
         </div>
 
         <div className="mt-3 p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="text-xs font-bold text-[var(--color-text-body)]">
-              Demo mode: using sample emails
+              {firebaseUser
+                ? `Firebase Project: gen-lang-client-0326449962`
+                : 'Demo mode: using sample emails & local storage'}
             </div>
             <p
               className="text-xs mt-0.5"
               style={{ color: 'var(--color-text-secondary)' }}
             >
-              Gmail not connected yet
+              {firebaseUser
+                ? `Authenticated as ${firebaseUser.email} (Region: asia-south1)`
+                : 'Sign in to Google to sync preferences, categories, and rules across sessions.'}
             </p>
           </div>
 
@@ -133,7 +183,7 @@ export const ProfileView: React.FC = () => {
             className="px-3 py-1 rounded-full text-[11px] font-semibold border border-[var(--color-border)] bg-[var(--color-surface)] self-start sm:self-auto"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            Sample Provider
+            {firebaseUser ? 'Firestore Connected' : 'Sample Provider'}
           </span>
         </div>
       </section>

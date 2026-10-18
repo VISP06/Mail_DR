@@ -30,6 +30,20 @@ import { getCleanupGroups, isEmailProtected } from '../services/cleanup';
 import { MockEmailProvider, STORAGE_KEY_USE_LARGE_DATASET } from '../providers/MockEmailProvider';
 import { categorizeEmailsApi } from '../services/geminiService';
 import { RagService } from '../services/ragService';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  auth,
+  signInWithGoogle as firebaseSignInWithGoogle,
+  signOutUser as firebaseSignOutUser,
+  syncUserProfile,
+  saveCategoryToFirestore,
+  deleteCategoryFromFirestore,
+  savePriorityRuleToFirestore,
+  deletePriorityRuleFromFirestore,
+  syncInboxStateToFirestore,
+  recordCleanupInFirestore,
+  loadUserDataFromFirestore,
+} from '../services/firebase';
 
 // Versioned storage keys
 const STORAGE_KEY_CATEGORIES_V2 = 'calm_inbox_categories_v2';
@@ -65,6 +79,9 @@ interface InboxContextType {
   // Authentication & Navigation
   isAuthenticated: boolean;
   setIsAuthenticated: (val: boolean) => void;
+  firebaseUser: User | null;
+  signInWithGoogle: () => Promise<void>;
+  signOut: () => Promise<void>;
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
 
@@ -187,6 +204,7 @@ const ragService = RagService.getInstance();
 export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticatedState] = useState<boolean>(false);
   const [hubShownThisSession, setHubShownThisSession] = useState<boolean>(false);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
 
   const setIsAuthenticated = useCallback((val: boolean) => {
     setIsAuthenticatedState(val);
@@ -194,6 +212,28 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setHubShownThisSession(false);
     }
   }, []);
+
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      const user = await firebaseSignInWithGoogle();
+      setFirebaseUser(user);
+      setIsAuthenticatedState(true);
+    } catch (e) {
+      console.error('Google Sign-In failed:', e);
+      throw e;
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    try {
+      await firebaseSignOutUser();
+    } catch (e) {
+      console.warn('Sign out warning:', e);
+    }
+    setFirebaseUser(null);
+    setIsAuthenticated(false);
+  }, [setIsAuthenticated]);
+
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
 
   const [unsubscribeCount, setUnsubscribeCount] = useState<number>(() => {
@@ -526,6 +566,51 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
+  // Firebase Auth state listener and initial data hydrate
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      if (user) {
+        setIsAuthenticatedState(true);
+        try {
+          const userData = await loadUserDataFromFirestore(user.uid);
+          if (userData.profile) {
+            if (userData.profile.themeMode) setThemeMode(userData.profile.themeMode);
+            if (userData.profile.listDensity) setListDensity(userData.profile.listDensity);
+            if (userData.profile.outdatedAfterDays) setOutdatedAfterDays(userData.profile.outdatedAfterDays);
+            if (typeof userData.profile.unsubscribeCount === 'number') setUnsubscribeCount(userData.profile.unsubscribeCount);
+          } else {
+            // First time sign-in: seed user profile in Firestore
+            await syncUserProfile(user.uid, user.email || '', {
+              themeMode,
+              listDensity,
+              outdatedAfterDays,
+              unsubscribeCount,
+            });
+          }
+          if (userData.categories && userData.categories.length > 0) {
+            setCategories(userData.categories);
+          }
+          if (userData.priorityRules && userData.priorityRules.length > 0) {
+            setPriorityRules(userData.priorityRules);
+          }
+          if (userData.inboxState) {
+            if (userData.inboxState.protectedSenders) setProtectedSenders(userData.inboxState.protectedSenders);
+            if (userData.inboxState.blockedSenders) setBlockedSenders(userData.inboxState.blockedSenders);
+            if (userData.inboxState.senderOverrides) setSenderCategoryOverrides(userData.inboxState.senderOverrides);
+            if (userData.inboxState.assignments) setEmailAssignments(userData.inboxState.assignments);
+          }
+          if (userData.cleanupHistory && userData.cleanupHistory.length > 0) {
+            setCleanupHistory(userData.cleanupHistory);
+          }
+        } catch (e) {
+          console.warn('Could not load user data from Firestore on login:', e);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Persist categories when changed (NEVER overwrite before storage has loaded)
   useEffect(() => {
     if (!isStorageLoaded) return;
@@ -534,7 +619,12 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('Failed saving categories:', e);
     }
-  }, [categories, isStorageLoaded]);
+    if (firebaseUser) {
+      categories.forEach((cat) => {
+        saveCategoryToFirestore(firebaseUser.uid, cat).catch(console.warn);
+      });
+    }
+  }, [categories, isStorageLoaded, firebaseUser]);
 
   // Persist email assignments
   useEffect(() => {
@@ -544,7 +634,15 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('Failed saving email assignments:', e);
     }
-  }, [emailAssignments, isStorageLoaded]);
+    if (firebaseUser) {
+      syncInboxStateToFirestore(firebaseUser.uid, {
+        assignments: emailAssignments,
+        senderOverrides: senderCategoryOverrides,
+        protectedSenders,
+        blockedSenders,
+      }).catch(console.warn);
+    }
+  }, [emailAssignments, senderCategoryOverrides, protectedSenders, blockedSenders, isStorageLoaded, firebaseUser]);
 
   // Persist sender overrides
   useEffect(() => {
@@ -564,7 +662,23 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('Failed saving priority rules:', e);
     }
-  }, [priorityRules, isStorageLoaded]);
+    if (firebaseUser) {
+      priorityRules.forEach((rule) => {
+        savePriorityRuleToFirestore(firebaseUser.uid, rule).catch(console.warn);
+      });
+    }
+  }, [priorityRules, isStorageLoaded, firebaseUser]);
+
+  // Persist user preferences to Firestore
+  useEffect(() => {
+    if (!isStorageLoaded || !firebaseUser) return;
+    syncUserProfile(firebaseUser.uid, firebaseUser.email || '', {
+      themeMode,
+      listDensity,
+      outdatedAfterDays,
+      unsubscribeCount,
+    }).catch(console.warn);
+  }, [themeMode, listDensity, outdatedAfterDays, unsubscribeCount, isStorageLoaded, firebaseUser]);
 
   // STEP 2: One helper getCategoryName(id) used everywhere
   // If an id is not found, show "Uncategorized", never the raw id!
@@ -1340,9 +1454,17 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         return next;
       });
+      if (firebaseUser) {
+        recordCleanupInFirestore(firebaseUser.uid, {
+          id: newRecord.id,
+          groupTitle: newRecord.groupTitle,
+          action: newRecord.action,
+          emailIds: newRecord.emailIds,
+        }).catch(console.warn);
+      }
       return id;
     },
-    []
+    [firebaseUser]
   );
 
   const undoCleanupAction = useCallback(
@@ -1375,6 +1497,9 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const value: InboxContextType = {
     isAuthenticated,
     setIsAuthenticated,
+    firebaseUser,
+    signInWithGoogle,
+    signOut,
     activeView,
     setActiveView,
 

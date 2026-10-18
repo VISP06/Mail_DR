@@ -28,6 +28,7 @@ export interface EmailCategory {
   description: string;
   color: string; // Pastel accent hex code
   isSystem?: boolean;
+  orderIndex?: number;
 }
 
 export type PriorityLevel = 'High' | 'Normal' | 'Low';

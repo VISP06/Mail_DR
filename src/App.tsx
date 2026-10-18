@@ -17,6 +17,7 @@ const AppContent: React.FC = () => {
   const {
     isAuthenticated,
     setIsAuthenticated,
+    signInWithGoogle,
     activeView,
     selectedEmail,
     layoutDebugOverlay,
@@ -28,7 +29,10 @@ const AppContent: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <>
-        <SignInScreen onEnterDemo={() => setIsAuthenticated(true)} />
+        <SignInScreen
+          onEnterDemo={() => setIsAuthenticated(true)}
+          onSignInWithGoogle={signInWithGoogle}
+        />
         {layoutDebugOverlay && <LayoutDebugOverlay />}
       </>
     );
