@@ -32,18 +32,20 @@ export const ReadSnackbar: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        <button
-          type="button"
-          onClick={undoMarkAllAsRead}
-          className="px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-xs focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
-          style={{
-            backgroundColor: 'var(--color-primary-btn)',
-            color: 'var(--color-primary-btn-text)',
-          }}
-        >
-          <RotateCcw size={12} />
-          <span>Undo</span>
-        </button>
+        {readSnackbar.showUndo !== false && (
+          <button
+            type="button"
+            onClick={undoMarkAllAsRead}
+            className="px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-xs focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
+            style={{
+              backgroundColor: 'var(--color-primary-btn)',
+              color: 'var(--color-primary-btn-text)',
+            }}
+          >
+            <RotateCcw size={12} />
+            <span>Undo</span>
+          </button>
+        )}
 
         <button
           type="button"

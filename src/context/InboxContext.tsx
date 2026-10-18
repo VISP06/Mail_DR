@@ -144,6 +144,7 @@ interface InboxContextType {
     isOpen: boolean;
     message: string;
     count: number;
+    showUndo?: boolean;
   } | null;
   dismissReadSnackbar: () => void;
 
@@ -222,6 +223,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     isOpen: boolean;
     message: string;
     count: number;
+    showUndo?: boolean;
   } | null>(null);
   const [lastMarkedReadIds, setLastMarkedReadIds] = useState<string[]>([]);
   const snackbarTimerRef = React.useRef<any>(null);
@@ -1150,10 +1152,41 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // STEP 9b: Reset Sample Emails (Debug - restores read/unread, trash, archive states)
   const resetSampleEmails = useCallback(async () => {
+    // 1. Clear persisted cleanup history in storage
+    try {
+      localStorage.removeItem(STORAGE_KEY_CLEANUP_HISTORY_V1);
+    } catch (e) {}
+
+    // 2. Clear in-memory cleanup history and undo snapshot
+    setCleanupHistory([]);
+    setLastMarkedReadIds([]);
+
+    // 3. Reset sample emails in provider and reload state
     if (emailProvider.resetSampleEmails) {
       const fresh = await emailProvider.resetSampleEmails();
-      setRawEmails(fresh);
+      const formatted = fresh.map((e) => ({
+        ...e,
+        categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+        categorySource: e.categorySource || 'fallback',
+      }));
+      setRawEmails(formatted);
       setSelectedEmail(null);
+
+      // 4. Compute real unread count and show confirmation snackbar
+      const unreadCount = formatted.filter((e) => e.isUnread && !e.isTrashed && !e.isArchived).length;
+      setReadSnackbar({
+        isOpen: true,
+        count: unreadCount,
+        message: `Sample emails reset: ${unreadCount} unread`,
+        showUndo: false,
+      });
+
+      if (snackbarTimerRef.current) {
+        clearTimeout(snackbarTimerRef.current);
+      }
+      snackbarTimerRef.current = setTimeout(() => {
+        setReadSnackbar(null);
+      }, 5000);
     }
   }, []);
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ArrowLeft,
   Plus,
@@ -79,6 +79,15 @@ export const SettingsView: React.FC = () => {
   } = useInbox();
 
   const [isResettingEmails, setIsResettingEmails] = useState(false);
+
+  // Live email counts for Debug section
+  const emailCounts = useMemo(() => {
+    const total = rawEmails.length;
+    const unread = rawEmails.filter((e) => e.isUnread && !e.isTrashed && !e.isArchived).length;
+    const trashed = rawEmails.filter((e) => Boolean(e.isTrashed)).length;
+    const archived = rawEmails.filter((e) => Boolean(e.isArchived)).length;
+    return { total, unread, trashed, archived };
+  }, [rawEmails]);
 
   // Category editing state
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
@@ -939,10 +948,15 @@ export const SettingsView: React.FC = () => {
         </div>
 
         <p
-          className="text-xs mb-4 leading-relaxed"
+          className="text-xs mb-3 leading-relaxed"
           style={{ color: 'var(--color-text-secondary)' }}
         >
           Internal diagnostics: raw category IDs, resolved category names, and classification source per email.
+        </p>
+
+        {/* Live email counts line */}
+        <p className="text-xs font-mono font-medium text-[var(--color-text-secondary)] mb-4">
+          Emails: {emailCounts.total} total, {emailCounts.unread} unread, {emailCounts.trashed} trashed, {emailCounts.archived} archived
         </p>
 
         {/* Layout debug overlay toggle */}

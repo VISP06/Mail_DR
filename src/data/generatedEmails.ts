@@ -204,12 +204,10 @@ const OTHER_SENDERS = [
  * - 32 (4%) Other
  * Total = 800 emails.
  */
-export function generateSampleEmails(): Email[] {
+export function generateSampleEmails(baseTimeMs: number = Date.now()): Email[] {
   const prng = createPRNG(133742);
   const emails: Email[] = [];
 
-  // Fixed baseline: 2026-10-12T06:00:00.000Z
-  const BASE_TIME_MS = 1791784800000;
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
   // Generate date spread across 14 months (~425 days), most between 1 and 12 months (30 to 365 days)
@@ -228,7 +226,7 @@ export function generateSampleEmails(): Email[] {
     }
     const hour = Math.floor(8 + prng() * 13); // 8 AM to 9 PM
     const minute = Math.floor(prng() * 60);
-    const dateMs = BASE_TIME_MS - daysAgo * ONE_DAY_MS + (hour * 3600000 + minute * 60000);
+    const dateMs = baseTimeMs - daysAgo * ONE_DAY_MS + (hour * 3600000 + minute * 60000);
     return new Date(dateMs).toISOString();
   };
 

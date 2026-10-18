@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
+import { Sparkles, ArrowRight } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { Email } from '../../types';
+import { OrganicBlob } from '../common/OrganicBlob';
+import { getCategoryIcon } from '../../constants/categoryIcons';
 
 interface HubCardData {
   id: string;
@@ -47,33 +50,63 @@ export const CategoryHubView: React.FC = () => {
     return emails.filter((e) => !e.isTrashed && !e.isArchived);
   }, [emails]);
 
+  const totalActiveUnreadEmails = useMemo(() => {
+    return activeEmails.filter((e) => e.isUnread);
+  }, [activeEmails]);
+
   const thirtyDaysAgoMs = useMemo(() => {
     return Date.now() - 30 * 24 * 60 * 60 * 1000;
   }, []);
 
-  // Qualifying emails for "Needs you first" strip:
+  // Qualifying emails for "What should I read first?":
   // - unread
-  // - High priority
-  // - from the last 30 days
   // - not trashed or archived
-  // - newest first
-  const qualifyingHighPriorityEmails = useMemo(() => {
-    return activeEmails
-      .filter((e) => {
-        if (!e.isUnread) return false;
-        if (getEmailPriority(e) !== 'High') return false;
-        const emailTime = new Date(e.date).getTime();
-        return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
-      })
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [activeEmails, getEmailPriority, thirtyDaysAgoMs]);
+  // - from the last 30 days
+  // - Rank: High priority first, then newest
+  // - Maximum 3
+  const qualifyingReadFirstEmails = useMemo(() => {
+    const candidates = totalActiveUnreadEmails.filter((e) => {
+      const emailTime = new Date(e.date).getTime();
+      return !isNaN(emailTime) && emailTime >= thirtyDaysAgoMs;
+    });
 
-  // Strip rows: up to 3 newest qualifying emails
-  const needsYouFirstRows = useMemo(() => {
-    return qualifyingHighPriorityEmails.slice(0, 3);
-  }, [qualifyingHighPriorityEmails]);
+    return candidates.sort((a, b) => {
+      const aIsHigh = getEmailPriority(a) === 'High' ? 1 : 0;
+      const bIsHigh = getEmailPriority(b) === 'High' ? 1 : 0;
+      if (aIsHigh !== bIsHigh) {
+        return bIsHigh - aIsHigh; // High priority first
+      }
+      return new Date(b.date).getTime() - new Date(a.date).getTime(); // Then newest first
+    });
+  }, [totalActiveUnreadEmails, getEmailPriority, thirtyDaysAgoMs]);
 
-  // Format date helper for rows
+  const readFirstEmails = useMemo(() => {
+    return qualifyingReadFirstEmails.slice(0, 3);
+  }, [qualifyingReadFirstEmails]);
+
+  // High-priority unread count in the last 30 days
+  const highPriorityUnread30DaysCount = useMemo(() => {
+    return qualifyingReadFirstEmails.filter((e) => getEmailPriority(e) === 'High').length;
+  }, [qualifyingReadFirstEmails, getEmailPriority]);
+
+  // Accent line text under greeting:
+  // - No unread emails at all -> "You're all caught up."
+  // - Unread emails exist but none are High priority in last 30 days -> "Nothing urgent right now."
+  // - Otherwise -> "N high-priority email(s) are waiting for you."
+  const accentLineText = useMemo(() => {
+    if (totalActiveUnreadEmails.length === 0) {
+      return "You're all caught up.";
+    }
+    if (highPriorityUnread30DaysCount === 0) {
+      return 'Nothing urgent right now.';
+    }
+    if (highPriorityUnread30DaysCount === 1) {
+      return '1 high-priority email is waiting for you.';
+    }
+    return `${highPriorityUnread30DaysCount} high-priority emails are waiting for you.`;
+  }, [totalActiveUnreadEmails.length, highPriorityUnread30DaysCount]);
+
+  // Format date helper for rows and cards
   const formatRowDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
@@ -81,6 +114,13 @@ export const CategoryHubView: React.FC = () => {
     } catch {
       return dateStr;
     }
+  };
+
+  // Helper to resolve human category name
+  const getCategoryName = (categoryId?: string): string => {
+    if (!categoryId || categoryId === 'uncategorized') return 'Uncategorized';
+    const found = categories.find((c) => c.id === categoryId);
+    return found ? found.name : 'Inbox';
   };
 
   // Helper to compute card metrics for an email subset
@@ -178,7 +218,7 @@ export const CategoryHubView: React.FC = () => {
     }, exitDuration);
   };
 
-  // Handler when a row in "Needs you first" is tapped (with 200ms exit fade-out)
+  // Handler when a recommended email card is tapped (with 200ms exit fade-out)
   const handleSelectEmail = (email: Email) => {
     if (isExiting) return;
     setIsExiting(true);
@@ -220,62 +260,95 @@ export const CategoryHubView: React.FC = () => {
             className="font-accent text-[17px] sm:text-lg mt-1.5 leading-relaxed"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            {qualifyingHighPriorityEmails.length === 0
-              ? 'Nothing urgent right now.'
-              : qualifyingHighPriorityEmails.length === 1
-              ? '1 high-priority email is waiting for you.'
-              : `${qualifyingHighPriorityEmails.length} high-priority emails are waiting for you.`}
+            {accentLineText}
           </p>
         </div>
       </header>
 
-      {/* 2. "Needs you first" Strip: Shown ONLY when there are qualifying emails */}
-      {needsYouFirstRows.length > 0 && (
-        <section
-          className="space-y-2.5 hub-animate-entrance"
-          style={{ animationDelay: '100ms' }}
-          aria-label="Needs you first"
-        >
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
-              Needs you first
-            </h2>
-            <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">
-              {qualifyingHighPriorityEmails.length}{' '}
-              {qualifyingHighPriorityEmails.length === 1 ? 'urgent email' : 'urgent emails'}
+      {/* 2. "What should I read first?" Section */}
+      <section
+        className="p-5 sm:p-6 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)] space-y-4 hub-animate-entrance transition-all"
+        style={{ animationDelay: '100ms' }}
+        aria-label="What should I read first?"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl flex items-center justify-center bg-[var(--accent-chartreuse)]/25 text-[#292D1E] dark:text-[var(--accent-chartreuse)] shrink-0">
+              <Sparkles size={18} />
             </span>
+            <h2 className="font-heading text-base sm:text-lg font-bold tracking-tight text-[var(--color-text-body)]">
+              What should I read first?
+            </h2>
           </div>
+          {readFirstEmails.length > 0 && (
+            <span className="text-[11px] font-medium text-[var(--color-text-secondary)] hidden sm:inline">
+              {readFirstEmails.length} {readFirstEmails.length === 1 ? 'recommendation' : 'recommendations'}
+            </span>
+          )}
+        </div>
 
-          <div className="space-y-2">
-            {needsYouFirstRows.map((email) => (
-              <button
-                type="button"
-                key={email.id}
-                onClick={() => handleSelectEmail(email)}
-                className="w-full text-left p-3.5 sm:p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover-tint)] active:scale-[0.99] transition-all flex items-center justify-between gap-3 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] group cursor-pointer shadow-none"
-              >
-                <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1">
-                  <span className="font-bold text-xs sm:text-sm text-[var(--color-text-body)] shrink-0 max-w-[120px] sm:max-w-[160px] truncate">
-                    {email.senderName || email.senderEmail}
-                  </span>
-                  <span className="text-xs text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-body)] truncate flex-1 min-w-0">
-                    {email.subject}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E07A5F]/15 text-[#9C4C14] dark:text-[var(--accent-peach)] border border-[#E07A5F]/30">
-                    High priority
-                  </span>
-                  <span className="text-[11px] text-[var(--color-text-secondary)] font-medium">
-                    {formatRowDate(email.date)}
-                  </span>
-                </div>
-              </button>
-            ))}
+        {readFirstEmails.length === 0 ? (
+          /* Empty state: keep container, soft organic blob, text in accent font */
+          <div className="py-7 sm:py-9 text-center space-y-3">
+            <OrganicBlob variant="empty-state" className="w-28 h-24 sm:w-32 sm:h-28 mx-auto opacity-75" />
+            <p className="font-accent text-xl sm:text-2xl text-[var(--color-text-body)] tracking-wide">
+              {totalActiveUnreadEmails.length === 0 ? "You're all caught up" : "Nothing urgent right now"}
+            </p>
           </div>
-        </section>
-      )}
+        ) : (
+          /* Up to 3 smaller email cards in a row (stacked below 640px width) */
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-3.5">
+            {readFirstEmails.map((email) => {
+              const isHigh = getEmailPriority(email) === 'High';
+              const catName = getCategoryName(email.categoryId);
+              const reasonText = isHigh ? `High priority in ${catName}` : `Unread in ${catName}`;
+
+              return (
+                <button
+                  type="button"
+                  key={email.id}
+                  onClick={() => handleSelectEmail(email)}
+                  className="w-full text-left p-4 sm:p-4.5 rounded-[20px] border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-hover-tint)] active:scale-[0.98] transition-all flex flex-col justify-between gap-3 group cursor-pointer shadow-none focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
+                >
+                  <div className="space-y-1.5 w-full">
+                    {/* Top: Sender Name and optional High priority pill */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-xs sm:text-sm text-[var(--color-text-body)] truncate flex-1 min-w-0">
+                        {email.senderName || email.senderEmail}
+                      </span>
+                      {isHigh && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E07A5F]/15 text-[#9C4C14] dark:text-[var(--accent-peach)] border border-[#E07A5F]/30 shrink-0">
+                          High priority
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Subject (clamped to 2 lines) */}
+                    <h3 className="text-xs sm:text-sm font-semibold text-[var(--color-text-body)] line-clamp-2 leading-snug">
+                      {email.subject}
+                    </h3>
+
+                    {/* Reason line in secondary text */}
+                    <p className="text-[11px] sm:text-xs text-[var(--color-text-secondary)] truncate font-medium">
+                      {reasonText}
+                    </p>
+                  </div>
+
+                  {/* Open email link + date */}
+                  <div className="pt-2 border-t border-[var(--color-border)]/60 flex items-center justify-between w-full">
+                    <span className="text-[11px] sm:text-xs font-semibold text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-body)] inline-flex items-center gap-1 transition-colors">
+                      Open email <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                    <span className="text-[10px] text-[var(--color-text-secondary)] opacity-70">
+                      {formatRowDate(email.date)}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* 3. Grid of Category Cards: 2 columns from 480px width, 1 column below 480px */}
       <section
@@ -283,9 +356,10 @@ export const CategoryHubView: React.FC = () => {
         aria-label="Category cards"
       >
         {hubCards.map((card, index) => {
-          const cardBaseDelay = needsYouFirstRows.length > 0 ? 150 : 100;
+          const cardBaseDelay = 150;
           const cardDelay = cardBaseDelay + Math.min(index * 50, 500);
           const countLabel = getCardCountLabel(card);
+          const CardIcon = getCategoryIcon(card.id, card.name);
 
           return (
             <div
@@ -296,9 +370,32 @@ export const CategoryHubView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleSelectCard(card.id)}
-                className="hub-card w-full text-left p-5 sm:p-6 rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover-tint)] outline-hidden shadow-none flex flex-col justify-between min-h-[120px] sm:min-h-[130px] group cursor-pointer"
+                className="hub-card relative overflow-hidden w-full text-left p-5 sm:p-6 rounded-[24px] border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover-tint)] outline-hidden shadow-none flex flex-col justify-between min-h-[128px] sm:min-h-[136px] group cursor-pointer"
               >
-                <div className="space-y-2.5 w-full">
+                {/* Decorative Art: large icon (~110px, stroke 1.25) + organic blob outline in bottom-right corner */}
+                <div
+                  className="hub-card-art pointer-events-none select-none absolute -right-4 -bottom-4 z-0 flex items-center justify-center opacity-[0.18] dark:opacity-[0.14]"
+                  style={{ color: card.color }}
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 160 160"
+                    className="absolute w-[145px] h-[145px]"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M 42,28 C 82,12 128,22 144,56 C 160,90 146,134 112,146 C 78,158 28,144 16,110 C 4,76 10,36 42,28 Z"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeDasharray="4 2"
+                    />
+                  </svg>
+                  <CardIcon size={110} strokeWidth={1.25} />
+                </div>
+
+                {/* Content sits above art in relative z-10 */}
+                <div className="relative z-10 space-y-2.5 w-full">
                   {/* Top line: Color Dot + Category Name, Labelled Count & High Priority pill */}
                   <div className="flex items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">

@@ -1,19 +1,12 @@
 import { Email } from '../types';
 import { EmailProvider } from './EmailProvider';
-import { GENERATED_EMAILS } from '../data/generatedEmails';
+import { generateSampleEmails } from '../data/generatedEmails';
 
 export const STORAGE_KEY_READ_OVERRIDES_V1 = 'calm_inbox_read_states_v1';
 export const STORAGE_KEY_USE_LARGE_DATASET = 'calm_inbox_use_large_dataset_v1';
 export const STORAGE_KEY_TRASH_ARCHIVE_STATES_V1 = 'calm_inbox_trash_archive_states_v1';
 
-export class MockEmailProvider implements EmailProvider {
-  private initialSampleEmails: Email[];
-  private emails: Email[];
-  private blockedSenders: Set<string>;
-
-  constructor() {
-    this.blockedSenders = new Set<string>();
-    this.emails = [
+const RAW_HANDWRITTEN_EMAILS: Email[] = [
       // 1. Work - Urgent Design Review
       {
         id: 'msg-001',
@@ -663,15 +656,42 @@ export class MockEmailProvider implements EmailProvider {
       },
     ];
 
-    this.initialSampleEmails = [...this.emails];
-    this.refreshEmailsDataset();
+const ORIGINAL_BASE_TIME_MS = 1791784800000; // 2026-10-12T06:00:00.000Z
+
+function computeRelativeDate(fixedDateStr: string, baseTimeMs: number): string {
+  const origMs = new Date(fixedDateStr).getTime();
+  const offset = ORIGINAL_BASE_TIME_MS - origMs;
+  return new Date(baseTimeMs - offset).toISOString();
+}
+
+export function getOriginalHandwrittenEmails(baseTimeMs: number = Date.now()): Email[] {
+  return RAW_HANDWRITTEN_EMAILS.map((e) => ({
+    ...e,
+    date: computeRelativeDate(e.date, baseTimeMs),
+    isTrashed: false,
+    isArchived: false,
+  }));
+}
+
+export class MockEmailProvider implements EmailProvider {
+  private initialSampleEmails: Email[];
+  private emails: Email[];
+  private blockedSenders: Set<string>;
+
+  constructor() {
+    this.blockedSenders = new Set<string>();
+    const baseTime = Date.now();
+    this.initialSampleEmails = getOriginalHandwrittenEmails(baseTime);
+    this.emails = [...this.initialSampleEmails];
+    this.refreshEmailsDataset(baseTime);
     this.loadPersistedReadStates();
+    this.loadPersistedTrashArchiveStates();
   }
 
   /**
    * Refreshes the active emails array based on the large dataset toggle.
    */
-  public refreshEmailsDataset(): void {
+  public refreshEmailsDataset(baseTimeMs: number = Date.now()): void {
     let useLarge = true;
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -685,9 +705,9 @@ export class MockEmailProvider implements EmailProvider {
     }
 
     if (useLarge) {
-      // Original 40 + generated ~800, deduplicated by id
+      const generated = generateSampleEmails(baseTimeMs);
       const existingIds = new Set(this.initialSampleEmails.map((e) => e.id));
-      const filteredGenerated = GENERATED_EMAILS.filter((e) => !existingIds.has(e.id));
+      const filteredGenerated = generated.filter((e) => !existingIds.has(e.id));
       this.emails = [...this.initialSampleEmails, ...filteredGenerated];
     } else {
       this.emails = [...this.initialSampleEmails];
@@ -793,7 +813,7 @@ export class MockEmailProvider implements EmailProvider {
         for (const e of this.emails) {
           stateMap[e.id] = e.isUnread;
         }
-        localStorage.setItem(STORAGE_KEY_READ_OVERRIDES_V1, JSON.stringify(stateMap));
+        window.localStorage.setItem(STORAGE_KEY_READ_OVERRIDES_V1, JSON.stringify(stateMap));
       }
     } catch (e) {
       console.warn('Failed to persist email read state:', e);
@@ -803,7 +823,7 @@ export class MockEmailProvider implements EmailProvider {
   private loadPersistedReadStates(): void {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = localStorage.getItem(STORAGE_KEY_READ_OVERRIDES_V1);
+        const raw = window.localStorage.getItem(STORAGE_KEY_READ_OVERRIDES_V1);
         if (raw) {
           const stateMap = JSON.parse(raw) as Record<string, boolean>;
           this.emails = this.emails.map((e) => {
@@ -831,7 +851,7 @@ export class MockEmailProvider implements EmailProvider {
             };
           }
         }
-        localStorage.setItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1, JSON.stringify(stateMap));
+        window.localStorage.setItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1, JSON.stringify(stateMap));
       }
     } catch (e) {
       console.warn('Failed to persist email trash/archive state:', e);
@@ -842,7 +862,7 @@ export class MockEmailProvider implements EmailProvider {
     try {
       let stateMap: Record<string, { isTrashed?: boolean; isArchived?: boolean }> = {};
       if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = localStorage.getItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
+        const raw = window.localStorage.getItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
         if (raw) {
           stateMap = JSON.parse(raw) as Record<string, { isTrashed?: boolean; isArchived?: boolean }>;
         }
@@ -863,8 +883,8 @@ export class MockEmailProvider implements EmailProvider {
   async resetReadStates(): Promise<void> {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem(STORAGE_KEY_READ_OVERRIDES_V1);
-        localStorage.removeItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
+        window.localStorage.removeItem(STORAGE_KEY_READ_OVERRIDES_V1);
+        window.localStorage.removeItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
       }
     } catch (e) {}
   }
@@ -872,8 +892,8 @@ export class MockEmailProvider implements EmailProvider {
   async resetSampleEmails(): Promise<Email[]> {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem(STORAGE_KEY_READ_OVERRIDES_V1);
-        localStorage.removeItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
+        window.localStorage.removeItem(STORAGE_KEY_READ_OVERRIDES_V1);
+        window.localStorage.removeItem(STORAGE_KEY_TRASH_ARCHIVE_STATES_V1);
       }
     } catch (e) {
       console.warn('Failed to clear persisted email states on reset:', e);
@@ -882,28 +902,30 @@ export class MockEmailProvider implements EmailProvider {
     let useLarge = true;
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const val = localStorage.getItem(STORAGE_KEY_USE_LARGE_DATASET);
+        const val = window.localStorage.getItem(STORAGE_KEY_USE_LARGE_DATASET);
         if (val !== null) {
           useLarge = JSON.parse(val);
         }
       }
     } catch (e) {}
 
+    const baseTimeMs = Date.now();
+    this.initialSampleEmails = getOriginalHandwrittenEmails(baseTimeMs);
+    const freshGenerated = generateSampleEmails(baseTimeMs);
+
     if (useLarge) {
       const existingIds = new Set(this.initialSampleEmails.map((e) => e.id));
-      const filteredGenerated = GENERATED_EMAILS.filter((e) => !existingIds.has(e.id));
+      const filteredGenerated = freshGenerated.filter((e) => !existingIds.has(e.id));
       this.emails = [
-        ...this.initialSampleEmails.map((e) => ({ ...e, isTrashed: false, isArchived: false })),
-        ...filteredGenerated.map((e) => ({ ...e, isTrashed: false, isArchived: false })),
+        ...this.initialSampleEmails,
+        ...filteredGenerated,
       ];
     } else {
-      this.emails = this.initialSampleEmails.map((e) => ({
-        ...e,
-        isTrashed: false,
-        isArchived: false,
-      }));
+      this.emails = [...this.initialSampleEmails];
     }
 
-    return [...this.emails];
+    return this.emails.filter(
+      (email) => !this.blockedSenders.has(email.senderEmail.toLowerCase())
+    );
   }
 }
