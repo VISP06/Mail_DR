@@ -2,9 +2,10 @@ import React, { useMemo } from 'react';
 import { useInbox } from '../../context/InboxContext';
 import { SenderAvatar, CategoryBadge } from '../common/CategoryBadge';
 import { OrganicBlob } from '../common/OrganicBlob';
-import { ArrowUpDown, CheckCheck, Check, Search } from 'lucide-react';
+import { ArrowUpDown, CheckCheck, Check, Search, Loader2, AlertCircle } from 'lucide-react';
 import { searchEmails, highlightMatch } from '../../services/searchService';
 import { READ_FIRST_DAYS } from '../../constants/app';
+import { ConnectGmailCard } from '../auth/ConnectGmailCard';
 
 export const EmailList: React.FC = () => {
   const {
@@ -20,6 +21,16 @@ export const EmailList: React.FC = () => {
     searchQuery,
     setSearchQuery,
     markAllAsRead,
+    isReadOnlyMode,
+    needsGmailConnect,
+    isGmailTokenExpired,
+    isGmailLoading,
+    gmailProgress,
+    gmailErrorState,
+    hasLoadedGmailSuccessfully,
+    reconnectGmail,
+    loadEmails,
+    signOut,
   } = useInbox();
 
   // 1. Filter emails by category or high priority filter
@@ -80,8 +91,124 @@ export const EmailList: React.FC = () => {
     setVisibleCount((prev) => prev + 50);
   };
 
+  // State 1: Restored session with no token in memory -> show Connect Gmail card
+  if (needsGmailConnect && emails.length === 0) {
+    return (
+      <div className="py-8">
+        <ConnectGmailCard isExpired={isGmailTokenExpired} onConnect={reconnectGmail} />
+      </div>
+    );
+  }
+
+  // State 2: Initial Gmail loading with 0 emails loaded yet -> show calm loading card
+  if (isReadOnlyMode && isGmailLoading && emails.length === 0) {
+    return (
+      <div className="py-20 px-6 text-center flex flex-col items-center justify-center rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[var(--accent-chartreuse)] text-[#292D1E] mb-4 shadow-xs">
+          <Loader2 size={22} className="animate-spin" />
+        </div>
+        <h3 className="font-heading text-xl font-bold tracking-tight text-[var(--color-text-body)]">
+          {gmailProgress ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...` : 'Reading your emails...'}
+        </h3>
+        <p className="mt-2 text-xs text-[var(--color-text-secondary)] max-w-sm">
+          Securely loading your most recent inbox messages in memory only.
+        </p>
+      </div>
+    );
+  }
+
+  // State 3: 403 Forbidden with 0 emails loaded
+  if (isReadOnlyMode && gmailErrorState?.type === '403' && emails.length === 0) {
+    return (
+      <div className="p-7 sm:p-9 rounded-[28px] border border-amber-500/40 bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-500/15 text-amber-600 dark:text-amber-400 mb-4">
+          <AlertCircle size={24} />
+        </div>
+        <h3 className="font-heading text-xl font-bold text-[var(--color-text-body)]">
+          Gmail Access Denied
+        </h3>
+        <p className="text-xs font-mono text-[var(--color-text-secondary)] mt-1.5">
+          Reason: {gmailErrorState.reason || 'Forbidden'}
+        </p>
+        <p className="mt-3 text-xs text-[var(--color-text-secondary)] max-w-md leading-relaxed">
+          The Gmail API may not be enabled for this project, or the permission was not granted. Try signing out and signing in again.
+        </p>
+        <div className="flex items-center gap-3 mt-6">
+          <button
+            type="button"
+            onClick={() => loadEmails()}
+            className="px-6 py-2.5 rounded-full font-semibold text-xs border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer"
+          >
+            Retry
+          </button>
+          <button
+            type="button"
+            onClick={signOut}
+            className="px-6 py-2.5 rounded-full font-semibold text-xs bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] transition-all cursor-pointer shadow-xs"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // State 4: Other error with 0 emails loaded
+  if (isReadOnlyMode && gmailErrorState?.type === 'other' && emails.length === 0) {
+    return (
+      <div className="p-7 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
+        <AlertCircle size={24} className="text-rose-500 mb-3" />
+        <h3 className="font-heading text-base font-bold text-[var(--color-text-body)] mb-1">
+          Unable to Load Gmail
+        </h3>
+        <p className="text-xs text-[var(--color-text-secondary)] max-w-sm mb-4">
+          {gmailErrorState.message || 'An error occurred while connecting to Gmail.'}
+        </p>
+        <button
+          type="button"
+          onClick={() => loadEmails()}
+          className="px-6 py-2.5 rounded-full text-xs font-semibold border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div id="email-list-section" className="space-y-4 scroll-mt-6">
+      {/* Expired connection card (keep everything on screen until user reconnects!) */}
+      {isReadOnlyMode && (isGmailTokenExpired || gmailErrorState?.type === '401') && (
+        <div className="mb-4">
+          <ConnectGmailCard isExpired={true} onConnect={reconnectGmail} />
+        </div>
+      )}
+
+      {/* 429 Rate limit retry notice */}
+      {isReadOnlyMode && gmailErrorState?.type === '429' && (
+        <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center gap-2.5 text-xs text-[var(--color-text-body)]">
+          <Loader2 size={16} className="animate-spin text-[var(--accent-chartreuse)]" />
+          <span>Gmail is busy, retrying...</span>
+        </div>
+      )}
+
+      {/* Incremental loading progress bar while emails are streaming in */}
+      {isReadOnlyMode && isGmailLoading && emails.length > 0 && (
+        <div className="p-3.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Loader2 size={15} className="animate-spin text-[var(--accent-chartreuse)] shrink-0" />
+            <span className="font-medium text-[var(--color-text-body)]">
+              {gmailProgress ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...` : 'Reading your emails...'}
+            </span>
+          </div>
+          {gmailProgress && (
+            <span className="text-[11px] text-[var(--color-text-secondary)] font-mono">
+              {Math.round((gmailProgress.loaded / (gmailProgress.total || 1)) * 100)}%
+            </span>
+          )}
+        </div>
+      )}
+
       {/* List Toolbar: Density, Priority Sorters, and Mark All As Read */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2 pb-1 border-b border-[var(--color-border)]">
         <div className="flex flex-wrap items-center gap-2">
@@ -104,9 +231,13 @@ export const EmailList: React.FC = () => {
           {activeCategoryFilter === 'unread' && unreadCountInUnreadView > 0 && (
             <button
               type="button"
-              onClick={() => markAllAsRead(categoryFilteredEmails.filter((e) => e.isUnread).map((e) => e.id))}
-              className="min-h-[38px] px-3.5 py-1 text-xs font-semibold rounded-full border border-[var(--color-border)] bg-[var(--color-hover-tint)] hover:bg-[var(--accent-chartreuse)]/25 text-[var(--color-text-body)] transition-all flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] shadow-2xs active:scale-95"
-              title={`Mark all ${unreadCountInUnreadView} unread emails as read`}
+              disabled={isReadOnlyMode}
+              onClick={() => {
+                if (isReadOnlyMode) return;
+                markAllAsRead(categoryFilteredEmails.filter((e) => e.isUnread).map((e) => e.id));
+              }}
+              className="min-h-[38px] px-3.5 py-1 text-xs font-semibold rounded-full border border-[var(--color-border)] bg-[var(--color-hover-tint)] hover:bg-[var(--accent-chartreuse)]/25 text-[var(--color-text-body)] transition-all flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] shadow-2xs active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+              title={isReadOnlyMode ? 'Read-only for now' : `Mark all ${unreadCountInUnreadView} unread emails as read`}
             >
               <Check size={13} className="text-[var(--color-text-body)] stroke-[2.5]" />
               <span>Mark all as read ({unreadCountInUnreadView})</span>
@@ -152,9 +283,9 @@ export const EmailList: React.FC = () => {
         </div>
       </div>
 
-      {/* Empty State: Search empty vs Catch-up empty */}
+      {/* Empty State: Only show "You're all caught up" if load succeeded and returned 0 emails */}
       {filteredEmails.length === 0 ? (
-        isSearching ? (
+        isReadOnlyMode && !hasLoadedGmailSuccessfully ? null : isSearching ? (
           /* Empty search result */
           <div className="py-16 px-6 text-center flex flex-col items-center justify-center rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)]">
             <div className="w-12 h-12 rounded-full mb-3 flex items-center justify-center bg-[var(--accent-chartreuse)]/20 text-[#292D1E] border border-[var(--color-border)]">
@@ -175,7 +306,7 @@ export const EmailList: React.FC = () => {
             </button>
           </div>
         ) : (
-          /* Empty State: You're all caught up (3 of 3 places with organic blob shape) */
+          /* Empty State: You're all caught up */
           <div className="relative py-20 px-6 text-center flex flex-col items-center justify-center rounded-[28px] border border-[var(--color-border)] overflow-hidden">
             <div className="absolute w-56 h-48 opacity-80 pointer-events-none">
               <OrganicBlob variant="empty-state" className="w-full h-full" />
@@ -256,7 +387,7 @@ export const EmailList: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      {/* Priority: small pill for High or Low only! Accessible contrast in both themes */}
+                      {/* Priority: small pill for High or Low only! */}
                       {priority === 'High' && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-tight uppercase bg-[#F0A66F]/25 dark:bg-[#F0A66F]/20 text-[#7C2D12] dark:text-[#FED7AA] border border-[#F0A66F]/50">
                           High

@@ -71,36 +71,22 @@ export const OrganicBlob: React.FC<OrganicBlobProps> = ({ variant, className = '
     );
   }
 
-  // sign-in screen
+  // sign-in screen: one soft blob with a single thin pastel outline, low opacity
   return (
     <svg
-      viewBox="0 0 320 260"
+      viewBox="0 0 220 160"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={`pointer-events-none select-none ${className}`}
       aria-hidden="true"
     >
       <path
-        d="M 65,110 C 35,185 115,245 190,235 C 265,225 295,155 270,90 C 245,25 175,18 115,35 C 55,52 95,35 65,110 Z"
+        d="M 44,80 C 26,124 64,150 114,146 C 164,142 190,110 186,70 C 182,30 144,14 104,18 C 64,22 62,36 44,80 Z"
         fill="var(--accent-chartreuse)"
         fillOpacity="0.12"
         stroke="var(--accent-chartreuse)"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M 90,95 C 60,155 130,210 195,195 C 260,180 270,125 240,75 C 210,25 150,35 115,55 C 80,75 120,35 90,95 Z"
-        fill="var(--accent-lavender)"
-        fillOpacity="0.14"
-        stroke="var(--accent-lavender)"
-        strokeWidth="1.5"
-        strokeDasharray="5 3"
-      />
-      <path
-        d="M 115,115 C 95,160 150,185 185,175 C 220,165 235,120 205,95 C 175,70 135,70 115,115 Z"
-        fill="var(--accent-pink)"
-        fillOpacity="0.16"
-        stroke="var(--accent-pink)"
-        strokeWidth="1.2"
+        strokeWidth="1.25"
+        strokeOpacity="0.5"
       />
     </svg>
   );

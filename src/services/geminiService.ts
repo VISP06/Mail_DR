@@ -16,15 +16,19 @@ export async function categorizeEmailsApi(
 
   const validCategoryIds = new Set(categories.map((c) => c.id));
   const results: CategorizeResult[] = [];
-  const BATCH_SIZE = 10;
+  const BATCH_SIZE = 20;
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
       const res = await fetch('/api/ai/categorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           emails: batch.map((e) => ({
             id: e.id,
@@ -41,6 +45,7 @@ export async function categorizeEmailsApi(
           uncategorizedId: UNCATEGORIZED_CATEGORY_ID,
         }),
       });
+      clearTimeout(timeoutId);
 
       if (!res.ok) {
         throw new Error(`Categorization failed (${res.status})`);
@@ -65,8 +70,9 @@ export async function categorizeEmailsApi(
           });
         }
       }
-    } catch (err) {
-      console.warn('Batch categorization error, applying safe fallback:', err);
+    } catch (err: any) {
+      const isTimeout = err?.name === 'AbortError';
+      console.warn(`Batch categorization error (${isTimeout ? 'Timeout' : err.message}), applying safe fallback:`, err);
       // On any failure or unknown value, assign "Uncategorized" with source "fallback". NEVER default to the first category.
       for (const email of batch) {
         results.push({
@@ -75,7 +81,6 @@ export async function categorizeEmailsApi(
           categorySource: 'fallback',
         });
       }
-      throw err;
     }
 
     onProgress?.(results.length, emails.length);

@@ -226,11 +226,27 @@ body {
   }
 }
 
+/* Subtle slow movement for soft organic blob */
+@keyframes blobSlowDrift {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate(8px, -10px) scale(1.03) rotate(1.5deg);
+  }
+}
+
+.animate-blob-drift {
+  animation: blobSlowDrift 16s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hub-animate-entrance,
   .hub-exiting,
   .animate-inbox-fade-in,
-  .animate-nav-fade-in {
+  .animate-nav-fade-in,
+  .animate-blob-drift {
+    animation: none !important;
     transform: none !important;
   }
   .hub-card,

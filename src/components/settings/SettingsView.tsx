@@ -20,6 +20,7 @@ import {
   Inbox,
   Check,
   Clock,
+  Mail,
 } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { EmailCategory, PriorityLevel, ThemeMode } from '../../types';
@@ -76,6 +77,8 @@ export const SettingsView: React.FC = () => {
     setLayoutDebugOverlay,
     useLargeDataset,
     setUseLargeDataset,
+    isDemo,
+    gmailDebugStatus,
   } = useInbox();
 
   const [isResettingEmails, setIsResettingEmails] = useState(false);
@@ -911,24 +914,26 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={async () => {
-                if (
-                  window.confirm(
-                    'Reset sample emails back to their original read, unread, trashed, and archived states? (Categories, rules, and protected senders will not be changed)'
-                  )
-                ) {
-                  setIsResettingEmails(true);
-                  await resetSampleEmails();
-                  setIsResettingEmails(false);
-                }
-              }}
-              disabled={isResettingEmails}
-              className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
-            >
-              {isResettingEmails ? 'Resetting emails...' : 'Reset sample emails'}
-            </button>
+            {isDemo && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (
+                    window.confirm(
+                      'Reset sample emails back to their original read, unread, trashed, and archived states? (Categories, rules, and protected senders will not be changed)'
+                    )
+                  ) {
+                    setIsResettingEmails(true);
+                    await resetSampleEmails();
+                    setIsResettingEmails(false);
+                  }
+                }}
+                disabled={isResettingEmails}
+                className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+              >
+                {isResettingEmails ? 'Resetting emails...' : 'Reset sample emails'}
+              </button>
+            )}
 
             <button
               type="button"
@@ -958,6 +963,96 @@ export const SettingsView: React.FC = () => {
         <p className="text-xs font-mono font-medium text-[var(--color-text-secondary)] mb-4">
           Emails: {emailCounts.total} total, {emailCounts.unread} unread, {emailCounts.trashed} trashed, {emailCounts.archived} archived
         </p>
+
+        {/* Gmail Status Diagnostic Block (Requirement 6) */}
+        <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[var(--color-text-body)] flex items-center gap-2">
+              <Mail size={14} className="text-[var(--accent-chartreuse)]" />
+              Gmail status
+            </span>
+            <span
+              className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                gmailDebugStatus.tokenPresent
+                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                  : 'bg-zinc-500/15 text-zinc-500 border-zinc-500/30'
+              }`}
+            >
+              token present ({gmailDebugStatus.tokenPresent ? 'yes' : 'no'})
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs font-mono">
+            <div className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <span className="text-[11px] text-[var(--color-text-secondary)] block font-sans mb-0.5">
+                Last request path:
+              </span>
+              <span className="font-semibold text-[var(--color-text-body)] break-all">
+                {gmailDebugStatus.lastRequestPath || 'None'}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <span className="text-[11px] text-[var(--color-text-secondary)] block font-sans mb-0.5">
+                HTTP status &amp; error reason:
+              </span>
+              <span className="font-semibold text-[var(--color-text-body)]">
+                {gmailDebugStatus.lastHttpStatus !== null
+                  ? `${gmailDebugStatus.lastHttpStatus}${
+                      gmailDebugStatus.lastErrorReason ? ` (${gmailDebugStatus.lastErrorReason})` : ''
+                    }`
+                  : 'None'}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <span className="text-[11px] text-[var(--color-text-secondary)] block font-sans mb-0.5">
+                Emails requested / loaded:
+              </span>
+              <span className="font-semibold text-[var(--color-text-body)]">
+                {gmailDebugStatus.emailsRequested} requested / {gmailDebugStatus.emailsLoaded} loaded
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <span className="text-[11px] text-[var(--color-text-secondary)] block font-sans mb-0.5">
+                Last attempt time:
+              </span>
+              <span className="font-semibold text-[var(--color-text-body)]">
+                {gmailDebugStatus.lastAttemptTime || 'None'}
+              </span>
+            </div>
+          </div>
+
+          {/* Health check profile response (Requirement 5) */}
+          {gmailDebugStatus.profileHealth && (
+            <div className="p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-xs space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="font-sans font-semibold text-[var(--color-text-body)]">
+                  Profile Health Check (/profile)
+                </span>
+                <span
+                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                    gmailDebugStatus.profileHealth.status === 'ok'
+                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-rose-500/20 text-rose-500'
+                  }`}
+                >
+                  {gmailDebugStatus.profileHealth.status}
+                </span>
+              </div>
+              {gmailDebugStatus.profileHealth.status === 'ok' ? (
+                <p className="font-mono text-[11px] text-[var(--color-text-secondary)]">
+                  Account: {gmailDebugStatus.profileHealth.emailAddress} • Messages: {gmailDebugStatus.profileHealth.messagesTotal} • Threads: {gmailDebugStatus.profileHealth.threadsTotal} • Checked: {gmailDebugStatus.profileHealth.checkedAt}
+                </p>
+              ) : (
+                <p className="font-mono text-[11px] text-rose-500">
+                  Error: {gmailDebugStatus.profileHealth.error} • Checked: {gmailDebugStatus.profileHealth.checkedAt}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Layout debug overlay toggle */}
         <div className="flex items-center justify-between p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4">
@@ -999,45 +1094,47 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
 
-        {/* Use large sample set toggle */}
-        <div className="flex items-center justify-between p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4">
-          <div className="pr-4">
-            <label
-              htmlFor="large-dataset-toggle"
-              className="text-xs font-bold block text-[var(--color-text-body)] cursor-pointer"
-            >
-              Use large sample set
-            </label>
-            <p
-              className="text-xs leading-relaxed mt-0.5"
-              style={{ color: 'var(--color-text-secondary)' }}
-            >
-              Load the full dataset (800+ emails) for testing Cleanup and volume stress tests. Switch off to return to just the original 40 hand-written emails.
-            </p>
-          </div>
+        {/* Use large sample set toggle (Demo mode only) */}
+        {isDemo && (
+          <div className="flex items-center justify-between p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4">
+            <div className="pr-4">
+              <label
+                htmlFor="large-dataset-toggle"
+                className="text-xs font-bold block text-[var(--color-text-body)] cursor-pointer"
+              >
+                Use large sample set
+              </label>
+              <p
+                className="text-xs leading-relaxed mt-0.5"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                Load the full dataset (800+ emails) for testing Cleanup and volume stress tests. Switch off to return to just the original 40 hand-written emails.
+              </p>
+            </div>
 
-          <button
-            id="large-dataset-toggle"
-            type="button"
-            role="switch"
-            aria-checked={useLargeDataset}
-            onClick={() => setUseLargeDataset(!useLargeDataset)}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
-              useLargeDataset
-                ? 'bg-[var(--accent-chartreuse)]'
-                : 'bg-zinc-300 dark:bg-zinc-700'
-            }`}
-            title="Toggle large sample dataset"
-          >
-            <span className="sr-only">Use large sample set</span>
-            <span
-              aria-hidden="true"
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-zinc-900 shadow-sm ring-0 transition duration-200 ease-in-out ${
-                useLargeDataset ? 'translate-x-5' : 'translate-x-0'
+            <button
+              id="large-dataset-toggle"
+              type="button"
+              role="switch"
+              aria-checked={useLargeDataset}
+              onClick={() => setUseLargeDataset(!useLargeDataset)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] ${
+                useLargeDataset
+                  ? 'bg-[var(--accent-chartreuse)]'
+                  : 'bg-zinc-300 dark:bg-zinc-700'
               }`}
-            />
-          </button>
-        </div>
+              title="Toggle large sample dataset"
+            >
+              <span className="sr-only">Use large sample set</span>
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-zinc-900 shadow-sm ring-0 transition duration-200 ease-in-out ${
+                  useLargeDataset ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        )}
 
         {/* Category & Source Diagnostic Counts */}
         {(() => {

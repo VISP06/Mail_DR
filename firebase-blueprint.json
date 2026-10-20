@@ -2,235 +2,31 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "User preferences, display density, and account metadata",
+      "description": "User account document",
       "type": "object",
       "properties": {
-        "userId": {
+        "displayName": {
           "type": "string",
-          "description": "Unique Firebase Auth user ID",
-          "maxLength": 128
+          "description": "User display name"
         },
         "email": {
           "type": "string",
           "format": "email",
-          "description": "User email address",
-          "maxLength": 254
-        },
-        "themeMode": {
-          "type": "string",
-          "enum": ["system", "light", "dark"],
-          "description": "Interface color theme preference"
-        },
-        "listDensity": {
-          "type": "string",
-          "enum": ["comfortable", "compact"],
-          "description": "Inbox item density"
-        },
-        "outdatedAfterDays": {
-          "type": "number",
-          "description": "Threshold in days for stale newsletter cleanup"
-        },
-        "unsubscribeCount": {
-          "type": "number",
-          "description": "Count of newsletters unsubscribed"
+          "description": "User email address"
         },
         "createdAt": {
           "type": "string",
           "format": "date-time",
           "description": "Account document creation timestamp"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Last profile update timestamp"
         }
       },
-      "required": ["userId", "email", "createdAt", "updatedAt"]
-    },
-    "Category": {
-      "title": "Category",
-      "description": "Custom or customized email category",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Category identifier",
-          "maxLength": 64,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "name": {
-          "type": "string",
-          "description": "Display name of category",
-          "maxLength": 48
-        },
-        "description": {
-          "type": "string",
-          "description": "Classification hint or description",
-          "maxLength": 256
-        },
-        "color": {
-          "type": "string",
-          "description": "Hex color code for chip and art accents",
-          "maxLength": 16,
-          "pattern": "^#[a-fA-F0-9]{6}$"
-        },
-        "orderIndex": {
-          "type": "number",
-          "description": "Sorting position in category chips and hub cards"
-        },
-        "userId": {
-          "type": "string",
-          "description": "Owning user UID",
-          "maxLength": 128
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Timestamp of last modification"
-        }
-      },
-      "required": ["id", "name", "color", "userId", "updatedAt"]
-    },
-    "PriorityRule": {
-      "title": "PriorityRule",
-      "description": "User rule elevating or lowering email priority",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Rule identifier",
-          "maxLength": 64,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "type": {
-          "type": "string",
-          "enum": ["sender", "category"],
-          "description": "Target type for rule"
-        },
-        "target": {
-          "type": "string",
-          "description": "Category ID or sender email",
-          "maxLength": 254
-        },
-        "priority": {
-          "type": "string",
-          "enum": ["High", "Normal", "Low"],
-          "description": "Assigned priority level"
-        },
-        "userId": {
-          "type": "string",
-          "description": "Owning user UID",
-          "maxLength": 128
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Rule modification timestamp"
-        }
-      },
-      "required": ["id", "type", "target", "priority", "userId", "updatedAt"]
-    },
-    "InboxState": {
-      "title": "InboxState",
-      "description": "State overrides and sender protections",
-      "type": "object",
-      "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owning user UID",
-          "maxLength": 128
-        },
-        "readOverrides": {
-          "type": "object",
-          "description": "Map of email IDs to unread boolean state"
-        },
-        "trashArchiveOverrides": {
-          "type": "object",
-          "description": "Map of email IDs to trashed/archived booleans"
-        },
-        "protectedSenders": {
-          "type": "array",
-          "description": "Sender emails protected from cleanup suggestions"
-        },
-        "blockedSenders": {
-          "type": "array",
-          "description": "Blocked sender emails"
-        },
-        "senderOverrides": {
-          "type": "object",
-          "description": "Map of sender emails to category IDs"
-        },
-        "assignments": {
-          "type": "object",
-          "description": "Manual category assignments per email ID"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Last synchronization timestamp"
-        }
-      },
-      "required": ["userId", "updatedAt"]
-    },
-    "CleanupRecord": {
-      "title": "CleanupRecord",
-      "description": "Log entry of a completed batch cleanup action",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique cleanup event ID",
-          "maxLength": 64,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "userId": {
-          "type": "string",
-          "description": "User ID who performed the action",
-          "maxLength": 128
-        },
-        "groupTitle": {
-          "type": "string",
-          "description": "Title of the cleanup group",
-          "maxLength": 128
-        },
-        "action": {
-          "type": "string",
-          "enum": ["trash", "archive"],
-          "description": "Action performed on candidate emails"
-        },
-        "emailIds": {
-          "type": "array",
-          "description": "List of affected email IDs"
-        },
-        "date": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Timestamp of action"
-        }
-      },
-      "required": ["id", "userId", "groupTitle", "action", "emailIds", "date"]
+      "required": ["createdAt", "email"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
-      "description": "Primary user preferences and account profile"
-    },
-    "/users/{userId}/categories/{categoryId}": {
-      "schema": "Category",
-      "description": "User custom and system category configurations"
-    },
-    "/users/{userId}/priorityRules/{ruleId}": {
-      "schema": "PriorityRule",
-      "description": "User custom priority rules"
-    },
-    "/users/{userId}/state/inboxState": {
-      "schema": "InboxState",
-      "description": "User inbox overrides and protections"
-    },
-    "/users/{userId}/cleanupHistory/{historyId}": {
-      "schema": "CleanupRecord",
-      "description": "User history of bulk cleanup operations"
+      "description": "Primary user document"
     }
   }
 }

@@ -3,8 +3,12 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  reauthenticateWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
   User,
 } from 'firebase/auth';
 import {
@@ -13,24 +17,45 @@ import {
   getDoc,
   getDocFromServer,
   setDoc,
-  collection,
-  getDocs,
-  deleteDoc,
   serverTimestamp,
-  Timestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { EmailCategory, PriorityLevel, ListDensity, ThemeMode } from '../types';
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with explicit database ID from config
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore (default database)
+export const db = getFirestore(app);
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
 export const googleAuthProvider = new GoogleAuthProvider();
+
+// Always use Firebase browserLocalPersistence
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.error('[Auth] Failed to set browserLocalPersistence:', err);
+});
+
+// Request basic profile, email, and read-only Gmail scopes
+googleAuthProvider.addScope('profile');
+googleAuthProvider.addScope('email');
+googleAuthProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+
+// In-memory OAuth access token storage for Gmail API.
+// Kept strictly in memory. Never written to localStorage, IndexedDB, or Firestore.
+let inMemoryGmailToken: string | null = null;
+
+export function getGmailAccessToken(): string | null {
+  return inMemoryGmailToken;
+}
+
+export function setGmailAccessToken(token: string | null): void {
+  inMemoryGmailToken = token;
+}
+
+export function clearGmailAccessToken(): void {
+  inMemoryGmailToken = null;
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -93,262 +118,111 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
-// Trigger initial connection test
-testConnection();
+// Friendly error messages for Firebase Google sign-in
+export function getFriendlyAuthErrorMessage(error: any): string {
+  if (!error) return 'Unable to sign in with Google. Please try again.';
+
+  const code = error.code || '';
+  const message = (error.message || '').toLowerCase();
+
+  if (
+    code === 'auth/popup-blocked' ||
+    message.includes('popup-blocked') ||
+    message.includes('popup was blocked')
+  ) {
+    return 'The sign-in pop-up was blocked by your browser. Please allow pop-ups for this site and try again.';
+  }
+
+  if (
+    code === 'auth/popup-closed-by-user' ||
+    message.includes('popup-closed-by-user') ||
+    message.includes('closed before completing')
+  ) {
+    return 'The sign-in window was closed before completing. Please try again.';
+  }
+
+  if (
+    code === 'auth/network-request-failed' ||
+    message.includes('network') ||
+    message.includes('offline')
+  ) {
+    return 'Network error. Please check your internet connection and try again.';
+  }
+
+  return 'Unable to sign in with Google. Please try again.';
+}
 
 // Auth Helpers
-export async function signInWithGoogle(): Promise<User> {
+export async function signInWithGoogle(): Promise<{ user: User; accessToken: string | null }> {
   try {
-    const cred = await signInWithPopup(auth, googleAuthProvider);
-    return cred.user;
+    await setPersistence(auth, browserLocalPersistence);
+    const result = await signInWithPopup(auth, googleAuthProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const accessToken = credential?.accessToken || null;
+    inMemoryGmailToken = accessToken;
+    return { user: result.user, accessToken };
   } catch (error) {
-    console.error('Failed to sign in with Google:', error);
+    console.error('[Auth] Failed to sign in with Google:', error);
+    throw error;
+  }
+}
+
+export async function reconnectGmail(): Promise<string> {
+  try {
+    let result;
+    if (auth.currentUser) {
+      try {
+        result = await reauthenticateWithPopup(auth.currentUser, googleAuthProvider);
+      } catch (err: any) {
+        console.warn('[Gmail] reauthenticateWithPopup fallback to signInWithPopup:', err?.message);
+        result = await signInWithPopup(auth, googleAuthProvider);
+      }
+    } else {
+      result = await signInWithPopup(auth, googleAuthProvider);
+    }
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const accessToken = credential?.accessToken || null;
+    if (!accessToken) {
+      throw new Error('No access token returned from Google sign-in.');
+    }
+    inMemoryGmailToken = accessToken;
+    return accessToken;
+  } catch (error) {
+    console.error('[Auth] Failed to reconnect Gmail:', error);
     throw error;
   }
 }
 
 export async function signOutUser(): Promise<void> {
   try {
+    inMemoryGmailToken = null;
     await firebaseSignOut(auth);
   } catch (error) {
-    console.error('Failed to sign out from Firebase:', error);
+    console.error('[Auth] Failed to sign out from Firebase:', error);
     throw error;
   }
 }
 
-// User Profile & Settings Sync
-export async function syncUserProfile(
-  userId: string,
-  email: string,
-  preferences: {
-    themeMode?: ThemeMode;
-    listDensity?: ListDensity;
-    outdatedAfterDays?: number;
-    unsubscribeCount?: number;
-  }
-): Promise<void> {
-  const path = `users/${userId}`;
+/**
+ * Minimal Firestore synchronization:
+ * On first sign-in, creates users/{uid} with { createdAt, displayName, email }.
+ * Stores nothing else yet, and never stores email contents.
+ */
+export async function ensureUserDocument(user: User): Promise<void> {
+  const path = `users/${user.uid}`;
   try {
-    const userDocRef = doc(db, 'users', userId);
-    const existing = await getDoc(userDocRef);
-    if (!existing.exists()) {
+    const userDocRef = doc(db, 'users', user.uid);
+    const docSnap = await getDoc(userDocRef);
+
+    if (!docSnap.exists()) {
       await setDoc(userDocRef, {
-        userId,
-        email,
-        themeMode: preferences.themeMode || 'system',
-        listDensity: preferences.listDensity || 'comfortable',
-        outdatedAfterDays: preferences.outdatedAfterDays || 14,
-        unsubscribeCount: preferences.unsubscribeCount || 0,
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        displayName: user.displayName || '',
+        email: user.email || '',
       });
-    } else {
-      await setDoc(
-        userDocRef,
-        {
-          ...preferences,
-          email,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
     }
   } catch (err) {
+    console.error('[Auth] Failed to create or check user document in Firestore:', err);
     handleFirestoreError(err, OperationType.WRITE, path);
   }
-}
-
-// Categories Sync
-export async function saveCategoryToFirestore(userId: string, category: EmailCategory): Promise<void> {
-  const path = `users/${userId}/categories/${category.id}`;
-  try {
-    const categoryRef = doc(db, 'users', userId, 'categories', category.id);
-    await setDoc(categoryRef, {
-      id: category.id,
-      name: category.name,
-      description: category.description || '',
-      color: category.color,
-      orderIndex: category.orderIndex ?? 0,
-      userId,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
-
-export async function deleteCategoryFromFirestore(userId: string, categoryId: string): Promise<void> {
-  const path = `users/${userId}/categories/${categoryId}`;
-  try {
-    const categoryRef = doc(db, 'users', userId, 'categories', categoryId);
-    await deleteDoc(categoryRef);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, path);
-  }
-}
-
-// Priority Rules Sync
-export async function savePriorityRuleToFirestore(
-  userId: string,
-  rule: { id: string; type: 'sender' | 'category'; target: string; priority: PriorityLevel }
-): Promise<void> {
-  const path = `users/${userId}/priorityRules/${rule.id}`;
-  try {
-    const ruleRef = doc(db, 'users', userId, 'priorityRules', rule.id);
-    await setDoc(ruleRef, {
-      id: rule.id,
-      type: rule.type,
-      target: rule.target,
-      priority: rule.priority,
-      userId,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
-
-export async function deletePriorityRuleFromFirestore(userId: string, ruleId: string): Promise<void> {
-  const path = `users/${userId}/priorityRules/${ruleId}`;
-  try {
-    const ruleRef = doc(db, 'users', userId, 'priorityRules', ruleId);
-    await deleteDoc(ruleRef);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, path);
-  }
-}
-
-// Inbox Overrides Sync
-export async function syncInboxStateToFirestore(
-  userId: string,
-  state: {
-    readOverrides?: Record<string, boolean>;
-    trashArchiveOverrides?: Record<string, { isTrashed?: boolean; isArchived?: boolean }>;
-    protectedSenders?: string[];
-    blockedSenders?: string[];
-    senderOverrides?: Record<string, string>;
-    assignments?: Record<string, any>;
-  }
-): Promise<void> {
-  const path = `users/${userId}/state/inboxState`;
-  try {
-    const stateRef = doc(db, 'users', userId, 'state', 'inboxState');
-    await setDoc(
-      stateRef,
-      {
-        userId,
-        ...state,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
-
-// Cleanup History Sync
-export async function recordCleanupInFirestore(
-  userId: string,
-  record: {
-    id: string;
-    groupTitle: string;
-    action: 'trash' | 'archive';
-    emailIds: string[];
-  }
-): Promise<void> {
-  const path = `users/${userId}/cleanupHistory/${record.id}`;
-  try {
-    const recordRef = doc(db, 'users', userId, 'cleanupHistory', record.id);
-    await setDoc(recordRef, {
-      id: record.id,
-      userId,
-      groupTitle: record.groupTitle,
-      action: record.action,
-      emailIds: record.emailIds,
-      date: serverTimestamp(),
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-  }
-}
-
-// Load entire user data from Firestore
-export async function loadUserDataFromFirestore(userId: string): Promise<{
-  profile: any | null;
-  categories: EmailCategory[];
-  priorityRules: any[];
-  inboxState: any | null;
-  cleanupHistory: any[];
-}> {
-  const userDocRef = doc(db, 'users', userId);
-  let profile = null;
-  try {
-    const userDocSnap = await getDoc(userDocRef);
-    if (userDocSnap.exists()) {
-      profile = userDocSnap.data();
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${userId}`);
-  }
-
-  // Load Categories
-  const categories: EmailCategory[] = [];
-  try {
-    const catCollRef = collection(db, 'users', userId, 'categories');
-    const catSnap = await getDocs(catCollRef);
-    catSnap.forEach((d) => {
-      categories.push(d.data() as EmailCategory);
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, `users/${userId}/categories`);
-  }
-
-  // Load Priority Rules
-  const priorityRules: any[] = [];
-  try {
-    const ruleCollRef = collection(db, 'users', userId, 'priorityRules');
-    const ruleSnap = await getDocs(ruleCollRef);
-    ruleSnap.forEach((d) => {
-      priorityRules.push(d.data());
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, `users/${userId}/priorityRules`);
-  }
-
-  // Load Inbox State
-  let inboxState = null;
-  try {
-    const stateRef = doc(db, 'users', userId, 'state', 'inboxState');
-    const stateSnap = await getDoc(stateRef);
-    if (stateSnap.exists()) {
-      inboxState = stateSnap.data();
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `users/${userId}/state/inboxState`);
-  }
-
-  // Load Cleanup History
-  const cleanupHistory: any[] = [];
-  try {
-    const cleanupCollRef = collection(db, 'users', userId, 'cleanupHistory');
-    const cleanSnap = await getDocs(cleanupCollRef);
-    cleanSnap.forEach((d) => {
-      const data = d.data();
-      cleanupHistory.push({
-        ...data,
-        date: data.date instanceof Timestamp ? data.date.toDate().toISOString() : data.date,
-      });
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, `users/${userId}/cleanupHistory`);
-  }
-
-  return {
-    profile,
-    categories,
-    priorityRules,
-    inboxState,
-    cleanupHistory,
-  };
 }

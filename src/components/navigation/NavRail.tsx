@@ -27,10 +27,17 @@ export const NavRail: React.FC = () => {
     setActiveView,
     setSelectedEmail,
     emails,
+    firebaseUser,
     setHubShownThisSession,
   } = useInbox();
 
   const unreadCount = emails.filter((e) => e.isUnread).length;
+
+  const avatarInitial = (
+    firebaseUser?.displayName?.trim()?.charAt(0) ||
+    firebaseUser?.email?.trim()?.charAt(0) ||
+    DEMO_USER.initial
+  ).toUpperCase();
 
   const handleNavClick = (viewId: ActiveView) => {
     setActiveView(viewId);
@@ -59,7 +66,7 @@ export const NavRail: React.FC = () => {
             title={APP_NAME}
             className="w-12 h-12 rounded-2xl flex items-center justify-center border border-[var(--color-border)] bg-[var(--accent-chartreuse)]/20 text-[#292D1E] hover:opacity-90 transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
           >
-            <span className="font-extrabold text-base tracking-tighter">CI</span>
+            <span className="font-extrabold text-base tracking-tighter">MD</span>
           </button>
 
           {/* Nav Items Array: Inbox, Settings, Profile */}
@@ -83,17 +90,24 @@ export const NavRail: React.FC = () => {
                   }`}
                 >
                   {item.isAvatar ? (
-                    /* Profile avatar initial in a small circle */
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-transform"
-                      style={{
-                        backgroundColor: 'var(--accent-chartreuse)',
-                        color: '#292D1E',
-                        border: '1px solid rgba(116, 121, 90, 0.3)',
-                      }}
-                    >
-                      {DEMO_USER.initial}
-                    </div>
+                    firebaseUser?.photoURL ? (
+                      <img
+                        src={firebaseUser.photoURL}
+                        alt={firebaseUser.displayName || 'Profile'}
+                        className="w-7 h-7 rounded-full object-cover border border-[var(--color-border)] shrink-0"
+                      />
+                    ) : (
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-transform"
+                        style={{
+                          backgroundColor: 'var(--accent-chartreuse)',
+                          color: '#292D1E',
+                          border: '1px solid rgba(116, 121, 90, 0.3)',
+                        }}
+                      >
+                        {avatarInitial}
+                      </div>
+                    )
                   ) : Icon ? (
                     <Icon size={22} />
                   ) : null}
@@ -150,17 +164,24 @@ export const NavRail: React.FC = () => {
             }`}
           >
             {item.isAvatar ? (
-              /* Profile avatar initial in a small circle */
-              <div
-                className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-                style={{
-                  backgroundColor: 'var(--accent-chartreuse)',
-                  color: '#292D1E',
-                  border: '1px solid rgba(116, 121, 90, 0.3)',
-                }}
-              >
-                {DEMO_USER.initial}
-              </div>
+              firebaseUser?.photoURL ? (
+                <img
+                  src={firebaseUser.photoURL}
+                  alt={firebaseUser.displayName || 'Profile'}
+                  className="w-6 h-6 rounded-full object-cover border border-[var(--color-border)] shrink-0"
+                />
+              ) : (
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+                  style={{
+                    backgroundColor: 'var(--accent-chartreuse)',
+                    color: '#292D1E',
+                    border: '1px solid rgba(116, 121, 90, 0.3)',
+                  }}
+                >
+                  {avatarInitial}
+                </div>
+              )
             ) : Icon ? (
               <div className="relative">
                 <Icon size={20} />

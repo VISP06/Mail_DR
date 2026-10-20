@@ -18,17 +18,16 @@ export const ProfileView: React.FC = () => {
   const {
     setActiveView,
     firebaseUser,
-    signInWithGoogle,
     signOut,
     emails,
     blockedSenders,
     unsubscribeCount,
     deleteSavedUserData,
+    isReadOnlyMode,
   } = useInbox();
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
 
   // Computed inbox stats from local data
   const emailsSortedCount = emails.filter(
@@ -106,48 +105,36 @@ export const ProfileView: React.FC = () => {
             {userEmail}
           </p>
 
-          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-[var(--color-border)] bg-[var(--color-hover-tint)]">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                firebaseUser ? 'bg-emerald-500 animate-pulse' : 'bg-[var(--accent-chartreuse)]'
-              }`}
-            />
-            <span style={{ color: 'var(--color-text-secondary)' }}>
-              {firebaseUser ? 'Firebase Cloud Synced' : 'Demo Mode (Local State)'}
-            </span>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-[var(--color-border)] bg-[var(--color-hover-tint)]">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  firebaseUser ? 'bg-emerald-500 animate-pulse' : 'bg-[var(--accent-chartreuse)]'
+                }`}
+              />
+              <span style={{ color: 'var(--color-text-secondary)' }}>
+                {firebaseUser ? 'Firebase Cloud Synced' : 'Demo Mode (Local State)'}
+              </span>
+            </div>
+
+            {isReadOnlyMode && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-[var(--color-border)] bg-[var(--color-hover-tint)] text-[var(--color-text-secondary)]">
+                Read-only mode
+              </span>
+            )}
           </div>
         </div>
 
         {/* Action Button */}
-        <div className="flex flex-col sm:flex-row items-center gap-2 self-center sm:self-start">
-          {!firebaseUser && (
-            <button
-              type="button"
-              disabled={isConnectingGoogle}
-              onClick={async () => {
-                try {
-                  setIsConnectingGoogle(true);
-                  await signInWithGoogle();
-                } catch (e) {
-                  console.warn('Connect with Google failed:', e);
-                } finally {
-                  setIsConnectingGoogle(false);
-                }
-              }}
-              className="min-h-[44px] px-4 py-2 rounded-full border border-[var(--color-border)] bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] text-xs font-semibold flex items-center gap-2 transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-            >
-              <span>{isConnectingGoogle ? 'Connecting...' : 'Sync to Firebase'}</span>
-            </button>
-          )}
-
+        <div className="flex items-center gap-2 self-center sm:self-start">
           <button
             type="button"
             onClick={handleSignOut}
-            className="min-h-[44px] px-4 py-2 rounded-full border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] text-xs font-semibold flex items-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)]"
-            title="Sign out and return to sign-in screen"
+            className="min-h-[44px] px-5 py-2.5 rounded-full border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] text-xs font-semibold flex items-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-[var(--accent-chartreuse)] cursor-pointer"
+            title={firebaseUser ? 'Sign out and return to login screen' : 'Exit demo and return to login screen'}
           >
             <LogOut size={14} />
-            <span>Sign out</span>
+            <span>{firebaseUser ? 'Sign out' : 'Exit demo'}</span>
           </button>
         </div>
       </section>
@@ -211,7 +198,7 @@ export const ProfileView: React.FC = () => {
           className="text-xs mb-4 leading-relaxed"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          When you connect your Google Workspace account in a future release, Calm Inbox will request only the minimum necessary permissions:
+          When you connect your Google Workspace account in a future release, MailDR will request only the minimum necessary permissions:
         </p>
 
         <ul className="space-y-2.5 text-xs">

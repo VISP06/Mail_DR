@@ -1,6 +1,6 @@
 import { EmailCategory } from '../types';
 
-export const APP_NAME = 'Calm Inbox';
+export const APP_NAME = 'MailDR';
 
 export const APP_TAGLINE = 'A quiet space for what matters today.';
 

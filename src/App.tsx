@@ -11,12 +11,18 @@ import { CategoryHubView } from './components/hub/CategoryHubView';
 import { AskInboxPanel } from './components/rag/AskInboxPanel';
 import { ReadSnackbar } from './components/common/ReadSnackbar';
 import { LayoutDebugOverlay } from './components/common/LayoutDebugOverlay';
+import { OrganicBlob } from './components/common/OrganicBlob';
+import { APP_NAME } from './constants/app';
 import { useNavBreakpoint } from './hooks/useMediaQuery';
+import { Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const {
     isAuthenticated,
-    setIsAuthenticated,
+    isAuthInitializing,
+    authInitError,
+    retryAuthInit,
+    enterDemo,
     signInWithGoogle,
     activeView,
     selectedEmail,
@@ -25,13 +31,47 @@ const AppContent: React.FC = () => {
   } = useInbox();
   const { isDesktop } = useNavBreakpoint();
 
-  // 1. Sign-in screen if not yet authenticated
+  // 1. Calm loading screen while Firebase checks session (logo and small spinner, never blank)
+  if (isAuthInitializing) {
+    return (
+      <div
+        className="h-[100dvh] w-full flex flex-col items-center justify-center p-6 relative overflow-hidden select-none"
+        style={{
+          backgroundColor: 'var(--color-bg)',
+          color: 'var(--color-text-body)',
+        }}
+      >
+        <div className="relative z-10 flex flex-col items-center gap-3">
+          <div className="h-[120px] aspect-[220/160] animate-blob-drift flex items-center justify-center pointer-events-none select-none mb-1">
+            <OrganicBlob variant="sign-in" className="w-full h-full" />
+          </div>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center border border-[var(--color-border)] bg-[var(--accent-chartreuse)] text-[#292D1E] shadow-xs">
+            <span className="font-extrabold text-base tracking-tighter">MD</span>
+          </div>
+          <p
+            className="font-heading text-lg font-bold tracking-tight"
+            style={{ color: 'var(--color-text-body)' }}
+          >
+            {APP_NAME}
+          </p>
+          <div className="flex items-center gap-2 mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+            <Loader2 size={16} className="animate-spin text-[var(--accent-chartreuse)]" />
+            <span className="text-xs">Checking sign-in...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Sign-in screen if not yet authenticated
   if (!isAuthenticated) {
     return (
       <>
         <SignInScreen
-          onEnterDemo={() => setIsAuthenticated(true)}
+          onEnterDemo={enterDemo}
           onSignInWithGoogle={signInWithGoogle}
+          authInitError={authInitError}
+          onRetryAuthInit={retryAuthInit}
         />
         {layoutDebugOverlay && <LayoutDebugOverlay />}
       </>

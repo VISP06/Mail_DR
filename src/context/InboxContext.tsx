@@ -28,6 +28,15 @@ import {
 } from '../constants/app';
 import { getCleanupGroups, isEmailProtected } from '../services/cleanup';
 import { MockEmailProvider, STORAGE_KEY_USE_LARGE_DATASET } from '../providers/MockEmailProvider';
+import {
+  GmailProvider,
+  GmailAuthExpiredError,
+  GmailPermissionDeniedError,
+  GmailRateLimitError,
+  GmailDebugStatus,
+  GMAIL_FETCH_LIMIT,
+} from '../providers/GmailProvider';
+import { EmailProvider } from '../providers/EmailProvider';
 import { categorizeEmailsApi } from '../services/geminiService';
 import { RagService } from '../services/ragService';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -35,19 +44,17 @@ import {
   auth,
   signInWithGoogle as firebaseSignInWithGoogle,
   signOutUser as firebaseSignOutUser,
-  syncUserProfile,
-  saveCategoryToFirestore,
-  deleteCategoryFromFirestore,
-  savePriorityRuleToFirestore,
-  deletePriorityRuleFromFirestore,
-  syncInboxStateToFirestore,
-  recordCleanupInFirestore,
-  loadUserDataFromFirestore,
+  reconnectGmail as firebaseReconnectGmail,
+  ensureUserDocument,
+  getGmailAccessToken,
+  clearGmailAccessToken,
 } from '../services/firebase';
 
 // Versioned storage keys
 const STORAGE_KEY_CATEGORIES_V2 = 'calm_inbox_categories_v2';
 const STORAGE_KEY_ASSIGNMENTS_V2 = 'calm_inbox_email_assignments_v2';
+const STORAGE_KEY_CATEGORY_CACHE = 'calm_inbox_email_categories_cache_v1';
+const STORAGE_KEY_READ_OVERRIDES = 'calm_inbox_read_states_v1';
 const STORAGE_KEY_SENDER_OVERRIDES_V2 = 'calm_inbox_sender_overrides_v2';
 const STORAGE_KEY_PRIORITY_RULES_V2 = 'calm_inbox_priority_rules_v2';
 const STORAGE_KEY_BLOCKED_SENDERS_V2 = 'calm_inbox_blocked_senders_v2';
@@ -56,6 +63,7 @@ const STORAGE_KEY_DEBUG_OVERLAY = 'calm_inbox_debug_overlay_v1';
 const STORAGE_KEY_CLEANUP_OUTDATED_DAYS_V1 = 'calm_inbox_cleanup_outdated_days_v1';
 const STORAGE_KEY_PROTECTED_SENDERS_V1 = 'calm_inbox_cleanup_protected_senders_v1';
 const STORAGE_KEY_CLEANUP_HISTORY_V1 = 'calm_inbox_cleanup_history_v1';
+const STORAGE_KEY_KEEP_SIGNED_IN = 'keepSignedIn';
 
 export interface DeleteCategoryOptions {
   categoryId: string;
@@ -78,12 +86,36 @@ export interface UndoDeleteState {
 interface InboxContextType {
   // Authentication & Navigation
   isAuthenticated: boolean;
+  isAuthInitializing: boolean;
+  authInitError: string | null;
+  retryAuthInit: () => void;
+  isDemo: boolean;
+  enterDemo: () => void;
   setIsAuthenticated: (val: boolean) => void;
   firebaseUser: User | null;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: (keepSignedIn?: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
+  hubShownThisSession: boolean;
+  setHubShownThisSession: (val: boolean) => void;
+
+  // Gmail & Read-Only Mode
+  isReadOnlyMode: boolean;
+  needsGmailConnect: boolean;
+  isGmailTokenExpired: boolean;
+  isGmailLoading: boolean;
+  gmailProgress: { loaded: number; total: number } | null;
+  gmailErrorState: {
+    type: '401' | '403' | '429' | 'other';
+    message: string;
+    reason?: string;
+    hint?: string;
+  } | null;
+  hasLoadedGmailSuccessfully: boolean;
+  gmailDebugStatus: GmailDebugStatus;
+  reconnectGmail: () => Promise<void>;
+  loadEmails: (overrideDemo?: boolean, explicitToken?: string) => Promise<void>;
 
   // Emails & Selection
   emails: Email[];
@@ -129,10 +161,6 @@ interface InboxContextType {
   blockedSenders: string[];
   blockSender: (senderEmail: string) => Promise<void>;
   unblockSender: (senderEmail: string) => Promise<void>;
-
-  // Startup Category Hub
-  hubShownThisSession: boolean;
-  setHubShownThisSession: (shown: boolean) => void;
 
   // Categorization Progress & Retry
   isCategorizing: boolean;
@@ -198,41 +226,276 @@ interface InboxContextType {
 
 const InboxContext = createContext<InboxContextType | null>(null);
 
-const emailProvider = new MockEmailProvider();
+const mockEmailProvider = new MockEmailProvider();
+const gmailEmailProvider = new GmailProvider();
 const ragService = RagService.getInstance();
 
 export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticatedState] = useState<boolean>(false);
   const [hubShownThisSession, setHubShownThisSession] = useState<boolean>(false);
+  const [isAuthInitializing, setIsAuthInitializing] = useState<boolean>(true);
+  const [authInitError, setAuthInitError] = useState<string | null>(null);
+  const [authInitAttempt, setAuthInitAttempt] = useState<number>(0);
+  const [isDemo, setIsDemo] = useState<boolean>(false);
+  const isDemoRef = useRef<boolean>(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+
+  // Gmail & Read-Only State (In-Memory Only)
+  const [gmailTokenState, setGmailTokenState] = useState<string | null>(() => getGmailAccessToken());
+  const [isGmailTokenExpired, setIsGmailTokenExpired] = useState<boolean>(false);
+  const [isGmailLoading, setIsGmailLoading] = useState<boolean>(false);
+  const [gmailProgress, setGmailProgress] = useState<{ loaded: number; total: number } | null>(null);
+  const [hasLoadedGmailSuccessfully, setHasLoadedGmailSuccessfully] = useState<boolean>(false);
+  const [gmailErrorState, setGmailErrorState] = useState<{
+    type: '401' | '403' | '429' | 'other';
+    message: string;
+    reason?: string;
+    hint?: string;
+  } | null>(null);
+
+  // Single place for Data Source Switch:
+  const isReadOnlyMode = !isDemo && Boolean(firebaseUser);
+  const activeEmailProvider: EmailProvider = isDemo ? mockEmailProvider : gmailEmailProvider;
+  const emailProvider = activeEmailProvider;
+  const needsGmailConnect = isReadOnlyMode && (!gmailTokenState || isGmailTokenExpired);
+
+  const [rawEmails, setRawEmails] = useState<Email[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [blockedSenders, setBlockedSenders] = useState<string[]>([]);
+
+  // Debug Diagnostics Status for Settings
+  const gmailDebugStatus: GmailDebugStatus = useMemo(() => {
+    return gmailEmailProvider.getDebugStatus();
+  }, [gmailTokenState, isGmailLoading, gmailProgress, gmailErrorState, rawEmails.length]);
+
+  const retryAuthInit = useCallback(() => {
+    setAuthInitError(null);
+    setIsAuthInitializing(true);
+    setAuthInitAttempt((prev) => prev + 1);
+  }, []);
 
   const setIsAuthenticated = useCallback((val: boolean) => {
     setIsAuthenticatedState(val);
     if (!val) {
       setHubShownThisSession(false);
+      setIsDemo(false);
+      isDemoRef.current = false;
     }
   }, []);
 
-  const signInWithGoogle = useCallback(async () => {
+  // loadEmails(): unified loader for demo and Gmail
+  const loadEmails = useCallback(
+    async (overrideDemo?: boolean, explicitToken?: string) => {
+      const demoActive = overrideDemo !== undefined ? overrideDemo : isDemoRef.current;
+
+      if (demoActive) {
+        try {
+          const emailList = await mockEmailProvider.listEmails();
+          const currentBlocked = await mockEmailProvider.getBlockedSenders();
+          setBlockedSenders(currentBlocked);
+          setRawEmails(
+            emailList.map((e: Email) => ({
+              ...e,
+              categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+              categorySource: e.categorySource || 'fallback',
+            }))
+          );
+          setHasLoadedGmailSuccessfully(true);
+          setGmailErrorState(null);
+        } catch (err) {
+          console.error('[Demo] Failed to load sample emails:', err);
+        }
+        return;
+      }
+
+      // Gmail mode
+      const token = explicitToken || getGmailAccessToken();
+      if (!token) {
+        // Restored session with no token: do NOT load emails and do NOT show all caught up
+        setHasLoadedGmailSuccessfully(false);
+        return;
+      }
+
+      setIsGmailLoading(true);
+      setGmailErrorState(null);
+      setGmailProgress({ loaded: 0, total: GMAIL_FETCH_LIMIT });
+
+      try {
+        const emailList = await gmailEmailProvider.listEmails(
+          (loaded, total, partialEmails) => {
+            setGmailProgress({ loaded, total });
+            // Show emails as they arrive!
+            setRawEmails(
+              partialEmails.map((e) => ({
+                ...e,
+                categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+                categorySource: e.categorySource || 'fallback',
+              }))
+            );
+          },
+          () => {
+            setGmailErrorState({
+              type: '429',
+              message: 'Gmail is busy, retrying...',
+              reason: 'Rate limit exceeded',
+            });
+          }
+        );
+
+        setRawEmails(
+          emailList.map((e) => ({
+            ...e,
+            categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+            categorySource: e.categorySource || 'fallback',
+          }))
+        );
+
+        setHasLoadedGmailSuccessfully(true);
+        setIsGmailTokenExpired(false);
+        setGmailErrorState(null);
+      } catch (err: any) {
+        if (err instanceof GmailAuthExpiredError) {
+          setIsGmailTokenExpired(true);
+          setGmailTokenState(null);
+          clearGmailAccessToken();
+          setGmailErrorState({
+            type: '401',
+            message: 'Your Gmail connection expired',
+            reason: 'Session expired',
+          });
+        } else if (err instanceof GmailPermissionDeniedError) {
+          setGmailErrorState({
+            type: '403',
+            message: err.message,
+            reason: err.reason,
+            hint: err.hint,
+          });
+        } else if (err instanceof GmailRateLimitError) {
+          setGmailErrorState({
+            type: '429',
+            message: 'Gmail is busy, retrying...',
+            reason: 'Rate limit exceeded',
+          });
+        } else {
+          setGmailErrorState({
+            type: 'other',
+            message: err?.message || 'Failed to read emails from Gmail. Please try again.',
+            reason: 'Request failed',
+          });
+        }
+      } finally {
+        setIsGmailLoading(false);
+        setGmailProgress(null);
+      }
+    },
+    []
+  );
+
+  const reconnectGmail = useCallback(async () => {
     try {
-      const user = await firebaseSignInWithGoogle();
-      setFirebaseUser(user);
-      setIsAuthenticatedState(true);
-    } catch (e) {
-      console.error('Google Sign-In failed:', e);
-      throw e;
+      const newToken = await firebaseReconnectGmail();
+      setGmailTokenState(newToken);
+      setIsGmailTokenExpired(false);
+      setGmailErrorState(null);
+      // Health check right after getting token:
+      try {
+        await gmailEmailProvider.checkHealth();
+      } catch (e) {
+        console.warn('[Gmail] Health check error:', e);
+      }
+      await loadEmails(false, newToken);
+    } catch (err: any) {
+      console.error('[Gmail] Reconnect failed:', err);
+      throw err;
     }
-  }, []);
+  }, [loadEmails]);
+
+  const enterDemo = useCallback(() => {
+    try {
+      localStorage.removeItem(STORAGE_KEY_KEEP_SIGNED_IN);
+    } catch (err) {
+      console.warn('[Auth] Failed to clear keepSignedIn on enterDemo:', err);
+    }
+    setIsDemo(true);
+    isDemoRef.current = true;
+    setFirebaseUser(null);
+    setGmailTokenState(null);
+    setIsGmailTokenExpired(false);
+    setIsAuthenticatedState(true);
+    setHubShownThisSession(false);
+    setAuthInitError(null);
+    setHasLoadedGmailSuccessfully(true);
+    setGmailErrorState(null);
+    loadEmails(true);
+  }, [loadEmails]);
+
+  const signInWithGoogle = useCallback(
+    async (keepSignedIn: boolean = false) => {
+      try {
+        try {
+          localStorage.setItem(STORAGE_KEY_KEEP_SIGNED_IN, keepSignedIn ? 'true' : 'false');
+        } catch (err) {
+          console.warn('[Auth] Failed to store keepSignedIn in localStorage:', err);
+        }
+        const { user, accessToken } = await firebaseSignInWithGoogle();
+        setFirebaseUser(user);
+        setGmailTokenState(accessToken);
+        setIsGmailTokenExpired(false);
+        setIsDemo(false);
+        isDemoRef.current = false;
+        setIsAuthenticatedState(true);
+        setHubShownThisSession(false);
+        setAuthInitError(null);
+        await ensureUserDocument(user);
+
+        if (accessToken) {
+          // Health check right after getting token
+          try {
+            await gmailEmailProvider.checkHealth();
+          } catch (e) {
+            console.warn('[Gmail] Health check error:', e);
+          }
+          // After "Continue with Google" succeeds on the login screen, use the token from that popup and load Gmail immediately.
+          await loadEmails(false, accessToken);
+        }
+      } catch (e) {
+        try {
+          localStorage.removeItem(STORAGE_KEY_KEEP_SIGNED_IN);
+        } catch {
+          // ignore
+        }
+        console.error('[Auth] Google Sign-In failed:', e);
+        throw e;
+      }
+    },
+    [loadEmails]
+  );
 
   const signOut = useCallback(async () => {
     try {
+      localStorage.removeItem(STORAGE_KEY_KEEP_SIGNED_IN);
+    } catch (err) {
+      console.warn('[Auth] Failed to remove keepSignedIn on signOut:', err);
+    }
+    try {
       await firebaseSignOutUser();
     } catch (e) {
-      console.warn('Sign out warning:', e);
+      console.warn('[Auth] Sign out warning:', e);
     }
+    clearGmailAccessToken();
+    setGmailTokenState(null);
+    setIsGmailTokenExpired(false);
     setFirebaseUser(null);
-    setIsAuthenticated(false);
-  }, [setIsAuthenticated]);
+    setIsDemo(false);
+    isDemoRef.current = false;
+    setIsAuthenticatedState(false);
+    setHubShownThisSession(false);
+    setActiveView('dashboard');
+    setSelectedEmail(null);
+    setRawEmails([]);
+    setHasLoadedGmailSuccessfully(false);
+    setGmailErrorState(null);
+  }, []);
 
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
 
@@ -245,8 +508,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   });
 
-  const [rawEmails, setRawEmails] = useState<Email[]>([]);
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [activeCategoryFilter, setActiveCategoryFilterState] = useState<string>('all');
   const [isHighPriorityUnreadFilterActive, setIsHighPriorityUnreadFilterActive] = useState<boolean>(false);
 
@@ -292,7 +553,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ]);
 
   const [sortByPriorityFirst, setSortByPriorityFirst] = useState<boolean>(true);
-  const [blockedSenders, setBlockedSenders] = useState<string[]>([]);
 
 
   // Categorization progress & error state
@@ -437,21 +697,23 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (err) {
       console.warn('Failed saving large dataset setting:', err);
     }
-    // Reload provider emails according to new setting
-    emailProvider.refreshEmailsDataset();
-    try {
-      const emailList = await emailProvider.listEmails();
-      const currentBlocked = await emailProvider.getBlockedSenders();
-      setBlockedSenders(currentBlocked);
-      setRawEmails(
-        emailList.map((e) => ({
-          ...e,
-          categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
-          categorySource: e.categorySource || 'fallback',
-        }))
-      );
-    } catch (e) {
-      console.warn('Failed reloading emails on dataset toggle:', e);
+    // The "Use large sample set" Debug option applies only to demo mode.
+    if (isDemoRef.current) {
+      mockEmailProvider.refreshEmailsDataset();
+      try {
+        const emailList = await mockEmailProvider.listEmails();
+        const currentBlocked = await mockEmailProvider.getBlockedSenders();
+        setBlockedSenders(currentBlocked);
+        setRawEmails(
+          emailList.map((e: Email) => ({
+            ...e,
+            categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
+            categorySource: e.categorySource || 'fallback',
+          }))
+        );
+      } catch (e) {
+        console.warn('Failed reloading emails on dataset toggle:', e);
+      }
     }
   }, []);
 
@@ -566,50 +828,98 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
-  // Firebase Auth state listener and initial data hydrate
+  // Startup Auth logic with keepSignedIn check and 8s resilient timeout
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
-      if (user) {
-        setIsAuthenticatedState(true);
-        try {
-          const userData = await loadUserDataFromFirestore(user.uid);
-          if (userData.profile) {
-            if (userData.profile.themeMode) setThemeMode(userData.profile.themeMode);
-            if (userData.profile.listDensity) setListDensity(userData.profile.listDensity);
-            if (userData.profile.outdatedAfterDays) setOutdatedAfterDays(userData.profile.outdatedAfterDays);
-            if (typeof userData.profile.unsubscribeCount === 'number') setUnsubscribeCount(userData.profile.unsubscribeCount);
-          } else {
-            // First time sign-in: seed user profile in Firestore
-            await syncUserProfile(user.uid, user.email || '', {
-              themeMode,
-              listDensity,
-              outdatedAfterDays,
-              unsubscribeCount,
-            });
-          }
-          if (userData.categories && userData.categories.length > 0) {
-            setCategories(userData.categories);
-          }
-          if (userData.priorityRules && userData.priorityRules.length > 0) {
-            setPriorityRules(userData.priorityRules);
-          }
-          if (userData.inboxState) {
-            if (userData.inboxState.protectedSenders) setProtectedSenders(userData.inboxState.protectedSenders);
-            if (userData.inboxState.blockedSenders) setBlockedSenders(userData.inboxState.blockedSenders);
-            if (userData.inboxState.senderOverrides) setSenderCategoryOverrides(userData.inboxState.senderOverrides);
-            if (userData.inboxState.assignments) setEmailAssignments(userData.inboxState.assignments);
-          }
-          if (userData.cleanupHistory && userData.cleanupHistory.length > 0) {
-            setCleanupHistory(userData.cleanupHistory);
-          }
-        } catch (e) {
-          console.warn('Could not load user data from Firestore on login:', e);
-        }
+    let resolved = false;
+    setIsAuthInitializing(true);
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        console.error('[Auth] Firebase authentication initialization timed out after 8 seconds');
+        setAuthInitError("Couldn't reach sign-in. Try again.");
+        setIsAuthInitializing(false);
       }
-    });
-    return () => unsubscribe();
-  }, []);
+    }, 8000);
+
+    let unsubscribeAuth: (() => void) | null = null;
+
+    const runStartupAuth = async () => {
+      let isKeepSignedIn = false;
+      try {
+        isKeepSignedIn = localStorage.getItem(STORAGE_KEY_KEEP_SIGNED_IN) === 'true';
+      } catch (err) {
+        console.warn('[Auth] Failed to read keepSignedIn from localStorage:', err);
+      }
+
+      if (!isKeepSignedIn) {
+        // If keepSignedIn is NOT true, call signOut(auth) first, wait for it to complete, then show the login screen
+        try {
+          await firebaseSignOutUser();
+        } catch (err) {
+          console.warn('[Auth] Pre-emptive signOut during startup:', err);
+        }
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          setFirebaseUser(null);
+          setIsAuthenticatedState(false);
+          setIsAuthInitializing(false);
+        }
+        return;
+      }
+
+      // If keepSignedIn is true, check if Firebase user exists
+      unsubscribeAuth = onAuthStateChanged(
+        auth,
+        async (user) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          setAuthInitError(null);
+          if (user) {
+            setFirebaseUser(user);
+            setIsDemo(false);
+            isDemoRef.current = false;
+            setIsAuthenticatedState(true);
+            setHubShownThisSession(false);
+            // Restored sessions have NO token in memory!
+            setGmailTokenState(null);
+            setIsGmailTokenExpired(false);
+            setHasLoadedGmailSuccessfully(false);
+            setRawEmails([]);
+            try {
+              await ensureUserDocument(user);
+            } catch (e) {
+              console.error('[Auth] Failed to ensure user document in Firestore:', e);
+            }
+          } else {
+            setFirebaseUser(null);
+            setIsAuthenticatedState(false);
+          }
+          setIsAuthInitializing(false);
+        },
+        (error) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          console.error('[Auth] Firebase onAuthStateChanged error:', error);
+          setAuthInitError("Couldn't reach sign-in. Try again.");
+          setIsAuthInitializing(false);
+        }
+      );
+    };
+
+    runStartupAuth();
+
+    return () => {
+      resolved = true;
+      clearTimeout(timer);
+      if (unsubscribeAuth) {
+        unsubscribeAuth();
+      }
+    };
+  }, [authInitAttempt]);
 
   // Persist categories when changed (NEVER overwrite before storage has loaded)
   useEffect(() => {
@@ -619,12 +929,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('Failed saving categories:', e);
     }
-    if (firebaseUser) {
-      categories.forEach((cat) => {
-        saveCategoryToFirestore(firebaseUser.uid, cat).catch(console.warn);
-      });
-    }
-  }, [categories, isStorageLoaded, firebaseUser]);
+  }, [categories, isStorageLoaded]);
 
   // Persist email assignments
   useEffect(() => {
@@ -634,15 +939,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('Failed saving email assignments:', e);
     }
-    if (firebaseUser) {
-      syncInboxStateToFirestore(firebaseUser.uid, {
-        assignments: emailAssignments,
-        senderOverrides: senderCategoryOverrides,
-        protectedSenders,
-        blockedSenders,
-      }).catch(console.warn);
-    }
-  }, [emailAssignments, senderCategoryOverrides, protectedSenders, blockedSenders, isStorageLoaded, firebaseUser]);
+  }, [emailAssignments, isStorageLoaded]);
 
   // Persist sender overrides
   useEffect(() => {
@@ -662,23 +959,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('Failed saving priority rules:', e);
     }
-    if (firebaseUser) {
-      priorityRules.forEach((rule) => {
-        savePriorityRuleToFirestore(firebaseUser.uid, rule).catch(console.warn);
-      });
-    }
-  }, [priorityRules, isStorageLoaded, firebaseUser]);
-
-  // Persist user preferences to Firestore
-  useEffect(() => {
-    if (!isStorageLoaded || !firebaseUser) return;
-    syncUserProfile(firebaseUser.uid, firebaseUser.email || '', {
-      themeMode,
-      listDensity,
-      outdatedAfterDays,
-      unsubscribeCount,
-    }).catch(console.warn);
-  }, [themeMode, listDensity, outdatedAfterDays, unsubscribeCount, isStorageLoaded, firebaseUser]);
+  }, [priorityRules, isStorageLoaded]);
 
   // STEP 2: One helper getCategoryName(id) used everywhere
   // If an id is not found, show "Uncategorized", never the raw id!
@@ -727,26 +1008,16 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [categories]
   );
 
-  // Load provider emails
-  const loadEmails = useCallback(async () => {
-    try {
-      const emailList = await emailProvider.listEmails();
-      const currentBlocked = await emailProvider.getBlockedSenders();
-      setBlockedSenders(currentBlocked);
-      setRawEmails(
-        emailList.map((e) => ({
-          ...e,
-          categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
-          categorySource: e.categorySource || 'fallback',
-        }))
-      );
-    } catch (err) {
-      console.error('Failed to load emails from provider:', err);
-    }
-  }, []);
-
+  // Startup email loading:
+  // - In demo mode, load demo emails.
+  // - In Gmail mode, load only if an explicit access token is present in memory.
+  // - Restored Firebase sessions without an access token do NOT load emails (and do NOT show all caught up).
   useEffect(() => {
-    loadEmails();
+    if (isDemoRef.current) {
+      loadEmails(true);
+    } else if (getGmailAccessToken()) {
+      loadEmails(false);
+    }
   }, [loadEmails]);
 
   // Background indexing for RAG embeddings (excluding trashed/archived)
@@ -1275,10 +1546,10 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCleanupHistory([]);
     setLastMarkedReadIds([]);
 
-    // 3. Reset sample emails in provider and reload state
-    if (emailProvider.resetSampleEmails) {
-      const fresh = await emailProvider.resetSampleEmails();
-      const formatted = fresh.map((e) => ({
+    // 3. Reset sample emails in provider (demo mode only) and reload state
+    if (isDemoRef.current && mockEmailProvider.resetSampleEmails) {
+      const fresh = await mockEmailProvider.resetSampleEmails();
+      const formatted = fresh.map((e: Email) => ({
         ...e,
         categoryId: e.categoryId || UNCATEGORIZED_CATEGORY_ID,
         categorySource: e.categorySource || 'fallback',
@@ -1454,17 +1725,9 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         return next;
       });
-      if (firebaseUser) {
-        recordCleanupInFirestore(firebaseUser.uid, {
-          id: newRecord.id,
-          groupTitle: newRecord.groupTitle,
-          action: newRecord.action,
-          emailIds: newRecord.emailIds,
-        }).catch(console.warn);
-      }
       return id;
     },
-    [firebaseUser]
+    []
   );
 
   const undoCleanupAction = useCallback(
@@ -1496,12 +1759,31 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const value: InboxContextType = {
     isAuthenticated,
+    isAuthInitializing,
+    authInitError,
+    retryAuthInit,
+    isDemo,
+    enterDemo,
     setIsAuthenticated,
     firebaseUser,
     signInWithGoogle,
     signOut,
     activeView,
     setActiveView,
+    hubShownThisSession,
+    setHubShownThisSession,
+
+    // Gmail & Read-Only Mode
+    isReadOnlyMode,
+    needsGmailConnect,
+    isGmailTokenExpired,
+    isGmailLoading,
+    gmailProgress,
+    gmailErrorState,
+    hasLoadedGmailSuccessfully,
+    gmailDebugStatus,
+    reconnectGmail,
+    loadEmails,
 
     emails: sortedEmails,
     selectedEmail,
@@ -1551,9 +1833,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     blockedSenders,
     blockSender,
     unblockSender,
-
-    hubShownThisSession,
-    setHubShownThisSession,
 
     isCategorizing,
     categorizeProgress,

@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { Sparkles, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { useInbox } from '../../context/InboxContext';
 import { Email } from '../../types';
 import { OrganicBlob } from '../common/OrganicBlob';
 import { getCategoryIcon } from '../../constants/categoryIcons';
+import { ConnectGmailCard } from '../auth/ConnectGmailCard';
 
 interface HubCardData {
   id: string;
@@ -19,11 +20,22 @@ export const CategoryHubView: React.FC = () => {
   const {
     emails,
     categories,
+    firebaseUser,
     getEmailPriority,
     setActiveCategoryFilter,
     setSelectedEmail,
     setActiveView,
     setHubShownThisSession,
+    isReadOnlyMode,
+    needsGmailConnect,
+    isGmailTokenExpired,
+    isGmailLoading,
+    gmailProgress,
+    gmailErrorState,
+    hasLoadedGmailSuccessfully,
+    reconnectGmail,
+    loadEmails,
+    signOut,
   } = useInbox();
 
   const [isExiting, setIsExiting] = useState(false);
@@ -44,6 +56,21 @@ export const CategoryHubView: React.FC = () => {
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
   }, []);
+
+  // First name for greeting (Firebase user's first name, or 'Maya' in demo mode)
+  const userFirstName = useMemo(() => {
+    if (firebaseUser?.displayName) {
+      const first = firebaseUser.displayName.trim().split(/\s+/)[0];
+      if (first) return first;
+    }
+    if (firebaseUser?.email) {
+      const emailName = firebaseUser.email.split('@')[0];
+      if (emailName) {
+        return emailName.charAt(0).toUpperCase() + emailName.slice(1);
+      }
+    }
+    return 'Maya';
+  }, [firebaseUser]);
 
   // Active emails (not trashed and not archived)
   const activeEmails = useMemo(() => {
@@ -94,6 +121,15 @@ export const CategoryHubView: React.FC = () => {
   // - Unread emails exist but none are High priority in last 30 days -> "Nothing urgent right now."
   // - Otherwise -> "N high-priority email(s) are waiting for you."
   const accentLineText = useMemo(() => {
+    if (isReadOnlyMode && !hasLoadedGmailSuccessfully) {
+      if (needsGmailConnect) {
+        return 'MailDR needs permission to read your mail.';
+      }
+      if (isGmailLoading) {
+        return gmailProgress ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...` : 'Reading your emails...';
+      }
+      return 'MailDR needs permission to read your mail.';
+    }
     if (totalActiveUnreadEmails.length === 0) {
       return "You're all caught up.";
     }
@@ -104,7 +140,15 @@ export const CategoryHubView: React.FC = () => {
       return '1 high-priority email is waiting for you.';
     }
     return `${highPriorityUnread30DaysCount} high-priority emails are waiting for you.`;
-  }, [totalActiveUnreadEmails.length, highPriorityUnread30DaysCount]);
+  }, [
+    totalActiveUnreadEmails.length,
+    highPriorityUnread30DaysCount,
+    isReadOnlyMode,
+    hasLoadedGmailSuccessfully,
+    needsGmailConnect,
+    isGmailLoading,
+    gmailProgress,
+  ]);
 
   // Format date helper for rows and cards
   const formatRowDate = (dateStr: string) => {
@@ -251,7 +295,7 @@ export const CategoryHubView: React.FC = () => {
             {todayFormatted}
           </span>
           <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight">
-            {greeting}, Maya
+            {greeting}, {userFirstName}
           </h1>
         </div>
 
@@ -265,12 +309,106 @@ export const CategoryHubView: React.FC = () => {
         </div>
       </header>
 
-      {/* 2. "What should I read first?" Section */}
-      <section
-        className="p-5 sm:p-6 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)] space-y-4 hub-animate-entrance transition-all"
-        style={{ animationDelay: '100ms' }}
-        aria-label="What should I read first?"
-      >
+      {/* Reconnect notice if token expired while emails were previously loaded */}
+      {isReadOnlyMode && (isGmailTokenExpired || gmailErrorState?.type === '401') && (
+        <div className="mb-4">
+          <ConnectGmailCard isExpired={true} onConnect={reconnectGmail} />
+        </div>
+      )}
+
+      {/* Streaming progress indicator */}
+      {isReadOnlyMode && isGmailLoading && emails.length > 0 && (
+        <div className="p-3.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between gap-3 text-xs mb-3">
+          <div className="flex items-center gap-2.5">
+            <Loader2 size={15} className="animate-spin text-[var(--accent-chartreuse)] shrink-0" />
+            <span className="font-medium text-[var(--color-text-body)]">
+              {gmailProgress ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...` : 'Reading your emails...'}
+            </span>
+          </div>
+          {gmailProgress && (
+            <span className="text-[11px] text-[var(--color-text-secondary)] font-mono">
+              {Math.round((gmailProgress.loaded / (gmailProgress.total || 1)) * 100)}%
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* If restored session with no token in memory -> show Connect Gmail card */}
+      {needsGmailConnect && emails.length === 0 ? (
+        <div className="py-8">
+          <ConnectGmailCard isExpired={isGmailTokenExpired} onConnect={reconnectGmail} />
+        </div>
+      ) : isReadOnlyMode && isGmailLoading && emails.length === 0 ? (
+        /* Loading Gmail emails state */
+        <div className="py-20 px-6 text-center flex flex-col items-center justify-center rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[var(--accent-chartreuse)] text-[#292D1E] mb-4 shadow-xs">
+            <Loader2 size={22} className="animate-spin" />
+          </div>
+          <h3 className="font-heading text-xl font-bold tracking-tight text-[var(--color-text-body)]">
+            {gmailProgress ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...` : 'Reading your emails...'}
+          </h3>
+          <p className="mt-2 text-xs text-[var(--color-text-secondary)] max-w-sm">
+            Securely loading your most recent inbox messages in memory only.
+          </p>
+        </div>
+      ) : isReadOnlyMode && gmailErrorState?.type === '403' && emails.length === 0 ? (
+        /* 403 Forbidden state */
+        <div className="p-7 sm:p-9 rounded-[28px] border border-amber-500/40 bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-500/15 text-amber-600 dark:text-amber-400 mb-4">
+            <AlertCircle size={24} />
+          </div>
+          <h3 className="font-heading text-xl font-bold text-[var(--color-text-body)]">
+            Gmail Access Denied
+          </h3>
+          <p className="text-xs font-mono text-[var(--color-text-secondary)] mt-1.5">
+            Reason: {gmailErrorState.reason || 'Forbidden'}
+          </p>
+          <p className="mt-3 text-xs text-[var(--color-text-secondary)] max-w-md leading-relaxed">
+            The Gmail API may not be enabled for this project, or the permission was not granted. Try signing out and signing in again.
+          </p>
+          <div className="flex items-center gap-3 mt-6">
+            <button
+              type="button"
+              onClick={() => loadEmails()}
+              className="px-6 py-2.5 rounded-full font-semibold text-xs border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={signOut}
+              className="px-6 py-2.5 rounded-full font-semibold text-xs bg-[var(--color-primary-btn)] text-[var(--color-primary-btn-text)] transition-all cursor-pointer shadow-xs"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      ) : isReadOnlyMode && gmailErrorState?.type === 'other' && emails.length === 0 ? (
+        /* Other error state */
+        <div className="p-7 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
+          <AlertCircle size={24} className="text-rose-500 mb-3" />
+          <h3 className="font-heading text-base font-bold text-[var(--color-text-body)] mb-1">
+            Unable to Load Gmail
+          </h3>
+          <p className="text-xs text-[var(--color-text-secondary)] max-w-sm mb-4">
+            {gmailErrorState.message || 'An error occurred while reading your Gmail inbox.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => loadEmails()}
+            className="px-6 py-2.5 rounded-full text-xs font-semibold border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* 2. "What should I read first?" Section */}
+          <section
+            className="p-5 sm:p-6 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)] space-y-4 hub-animate-entrance transition-all"
+            style={{ animationDelay: '100ms' }}
+            aria-label="What should I read first?"
+          >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="w-8 h-8 rounded-xl flex items-center justify-center bg-[var(--accent-chartreuse)]/25 text-[#292D1E] dark:text-[var(--accent-chartreuse)] shrink-0">
@@ -292,7 +430,9 @@ export const CategoryHubView: React.FC = () => {
           <div className="py-7 sm:py-9 text-center space-y-3">
             <OrganicBlob variant="empty-state" className="w-28 h-24 sm:w-32 sm:h-28 mx-auto opacity-75" />
             <p className="font-accent text-xl sm:text-2xl text-[var(--color-text-body)] tracking-wide">
-              {totalActiveUnreadEmails.length === 0 ? "You're all caught up" : "Nothing urgent right now"}
+              {totalActiveUnreadEmails.length === 0 && (!isReadOnlyMode || hasLoadedGmailSuccessfully)
+                ? "You're all caught up"
+                : 'Nothing urgent right now'}
             </p>
           </div>
         ) : (
@@ -441,6 +581,8 @@ export const CategoryHubView: React.FC = () => {
           );
         })}
       </section>
+        </>
+      )}
     </div>
   );
 };
