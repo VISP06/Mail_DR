@@ -11,6 +11,34 @@ export interface CategorizeResponse {
   results: CategorizeResult[];
   failedCount: number;
   lastError: string | null;
+  plainReason: string | null;
+}
+
+export function toPlainCategorizeReason(status?: number | null, rawReason?: string | null): string {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return 'No internet';
+  }
+
+  const s = status || 0;
+  const r = (rawReason || '').toLowerCase();
+
+  if (s === 429 || r.includes('quota') || r.includes('resource_exhausted') || r.includes('rate limit') || r.includes('too many requests')) {
+    return 'AI service limit reached';
+  }
+  if (s === 408 || s === 504 || r.includes('timeout') || r.includes('timed out') || r.includes('abort')) {
+    return "AI service didn't respond";
+  }
+  if (s === 502 || r.includes('parse') || r.includes('json') || r.includes('unexpected') || r.includes('format')) {
+    return 'AI returned an unexpected answer';
+  }
+  if (r.includes('failed to fetch') || r.includes('network') || r.includes('no internet') || r.includes('econnrefused')) {
+    return 'No internet';
+  }
+  if (s === 503 || s === 500 || r.includes('unavailable') || r.includes('server error')) {
+    return 'AI service unavailable';
+  }
+
+  return rawReason || 'AI service error';
 }
 
 export async function categorizeEmailsApi(
@@ -19,7 +47,7 @@ export async function categorizeEmailsApi(
   onProgress?: (processed: number, total: number) => void
 ): Promise<CategorizeResponse> {
   if (emails.length === 0) {
-    return { results: [], failedCount: 0, lastError: null };
+    return { results: [], failedCount: 0, lastError: null, plainReason: null };
   }
 
   const validCategoryIds = new Set(categories.map((c) => c.id));
@@ -27,6 +55,7 @@ export async function categorizeEmailsApi(
   const BATCH_SIZE = 20;
   let failedCount = 0;
   let lastError: string | null = null;
+  let plainReason: string | null = null;
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE);
@@ -59,15 +88,20 @@ export async function categorizeEmailsApi(
 
       if (!res.ok) {
         let reason = res.statusText || 'Request failed';
+        let googleErrorReason: string | null = null;
         try {
           const errData = await res.json();
-          if (errData?.error) reason = errData.error;
+          if (errData?.error) {
+            reason = errData.error;
+            googleErrorReason = errData.error;
+          }
         } catch {
           // ignore
         }
         console.error('[Categorize] Batch failed:', { status: res.status, reason });
         failedCount += batch.length;
-        lastError = `HTTP ${res.status}: ${reason}`;
+        lastError = `${res.status}${googleErrorReason || reason ? ` (${googleErrorReason || reason})` : ''}`;
+        plainReason = toPlainCategorizeReason(res.status, googleErrorReason || reason);
 
         for (const email of batch) {
           results.push({
@@ -107,7 +141,8 @@ export async function categorizeEmailsApi(
       const status = isTimeout ? 408 : 0;
       console.error('[Categorize] Batch failed:', { status, reason });
       failedCount += batch.length;
-      lastError = isTimeout ? 'Timeout after 20s' : reason;
+      lastError = status > 0 ? `${status} (${reason})` : reason;
+      plainReason = toPlainCategorizeReason(status, reason);
 
       for (const email of batch) {
         results.push({
@@ -121,7 +156,7 @@ export async function categorizeEmailsApi(
     onProgress?.(results.length, emails.length);
   }
 
-  return { results, failedCount, lastError };
+  return { results, failedCount, lastError, plainReason };
 }
 
 export async function summarizeEmailApi(email: Email): Promise<EmailSummary> {

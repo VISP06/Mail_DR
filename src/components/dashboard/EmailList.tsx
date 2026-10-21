@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useInbox } from '../../context/InboxContext';
 import { SenderAvatar, CategoryBadge } from '../common/CategoryBadge';
 import { OrganicBlob } from '../common/OrganicBlob';
-import { ArrowUpDown, CheckCheck, Check, Search, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowUpDown, CheckCheck, Check, Search, Loader2, AlertCircle, ChevronDown } from 'lucide-react';
 import { searchEmails, highlightMatch } from '../../services/searchService';
 import { READ_FIRST_DAYS } from '../../constants/app';
 import { ConnectGmailCard } from '../auth/ConnectGmailCard';
@@ -31,9 +31,12 @@ export const EmailList: React.FC = () => {
     reconnectGmail,
     loadEmails,
     signOut,
+    categories,
+    moveEmailToCategory,
     isCategorizing,
     categorizeProgress,
     categorizeFailedCount,
+    categorizeFailedReason,
     retryCategorization,
   } = useInbox();
 
@@ -228,19 +231,20 @@ export const EmailList: React.FC = () => {
         </div>
       )}
 
-      {/* Categorization failure banner: Couldn't sort N emails. with Retry button */}
+      {/* Categorization failure banner: Couldn't sort N emails: [reason] with Retry button */}
       {categorizeFailedCount > 0 && !isCategorizing && (
         <div className="p-3 sm:p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <AlertCircle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="font-medium">
-              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}.
+            <span className="font-medium truncate">
+              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}
+              {categorizeFailedReason ? `: ${categorizeFailedReason}` : ''}.
             </span>
           </div>
           <button
             type="button"
             onClick={retryCategorization}
-            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs"
+            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs shrink-0"
           >
             Retry
           </button>
@@ -468,10 +472,53 @@ export const EmailList: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Category Chip (on desktop) */}
+                {/* Category Tag on right side: normal contrast, category color, tap-to-change (remembers for sender) */}
                 {category && (
-                  <div className="hidden lg:block shrink-0">
-                    <CategoryBadge category={category} size="sm" />
+                  <div
+                    className="hidden sm:flex items-center shrink-0 relative"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <label htmlFor={`cat-select-${email.id}`} className="sr-only">
+                      Change category for {email.senderName}
+                    </label>
+                    <div className="relative inline-flex items-center group/cat">
+                      <div
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border shadow-2xs group-hover/cat:opacity-90 active:scale-95 cursor-pointer"
+                        style={{
+                          backgroundColor: `${category.color}25`,
+                          borderColor: `${category.color}80`,
+                          color: 'var(--color-text-body)',
+                        }}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: category.color }}
+                        />
+                        <span className="font-medium">{category.name}</span>
+                        <ChevronDown size={11} className="opacity-70 shrink-0 -mr-0.5" />
+                      </div>
+
+                      <select
+                        id={`cat-select-${email.id}`}
+                        value={email.categoryId || ''}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          if (e.target.value) {
+                            moveEmailToCategory(email.id, e.target.value, true);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-xs"
+                        title={`Change category (currently ${category.name}, remembers for ${email.senderName})`}
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>

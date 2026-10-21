@@ -249,8 +249,8 @@ export class GmailProvider implements EmailProvider {
       lastRequestPath: this.lastRequestPath,
       lastHttpStatus: this.lastHttpStatus,
       lastErrorReason: this.lastErrorReason,
-      emailsRequested: this.emailsRequested,
-      emailsLoaded: this.emailsLoaded,
+      emailsRequested: this.emailsRequested || GMAIL_FETCH_LIMIT,
+      emailsLoaded: this.emailsLoaded || this.inMemoryEmails.length,
       lastAttemptTime: this.lastAttemptTime,
       profileHealth: this.profileHealth,
     };
@@ -397,15 +397,25 @@ export class GmailProvider implements EmailProvider {
       console.warn('[Gmail] Sent check non-fatal error:', err);
     }
 
-    // 2. Load inbox message list (q "in:inbox", up to GMAIL_FETCH_LIMIT = 200)
-    const inboxListRes = await this.fetchWithAuth(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=${GMAIL_FETCH_LIMIT}`,
-      3,
-      onRateLimitRetry
-    );
+    // 2. Load inbox message list (q "in:inbox", maxResults=100 per page up to GMAIL_FETCH_LIMIT = 200)
+    const messageStubs: Array<{ id: string; threadId: string }> = [];
+    let pageToken: string | undefined = undefined;
 
-    const inboxData = await inboxListRes.json();
-    const messageStubs: Array<{ id: string; threadId: string }> = inboxData.messages || [];
+    while (messageStubs.length < GMAIL_FETCH_LIMIT) {
+      const pageLimit = Math.min(100, GMAIL_FETCH_LIMIT - messageStubs.length);
+      const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=${pageLimit}${
+        pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''
+      }`;
+      const inboxListRes = await this.fetchWithAuth(url, 3, onRateLimitRetry);
+      const inboxData = await inboxListRes.json();
+      const pageMessages: Array<{ id: string; threadId: string }> = inboxData.messages || [];
+      messageStubs.push(...pageMessages);
+
+      if (!inboxData.nextPageToken || pageMessages.length === 0) {
+        break;
+      }
+      pageToken = inboxData.nextPageToken;
+    }
 
     if (messageStubs.length === 0) {
       this.inMemoryEmails = [];
@@ -455,6 +465,7 @@ export class GmailProvider implements EmailProvider {
 
     // Keep all email content in memory only
     this.inMemoryEmails = fetchedEmails;
+    this.emailsLoaded = fetchedEmails.length;
     return fetchedEmails;
   }
 

@@ -1,8 +1,6 @@
 import React from 'react';
 import { useInbox } from '../../context/InboxContext';
 import { UNCATEGORIZED_CATEGORY_ID } from '../../constants/app';
-import { Loader2, RefreshCw, AlertCircle } from 'lucide-react';
-
 export const CategoryFilterChips: React.FC = () => {
   const {
     categories,
@@ -11,10 +9,6 @@ export const CategoryFilterChips: React.FC = () => {
     emails,
     highPriorityUnreadCount,
     getEmailPriority,
-    isCategorizing,
-    categorizeProgress,
-    categorizeError,
-    retryCategorization,
   } = useInbox();
 
   // Compute total unread count (for Unread chip)
@@ -82,39 +76,6 @@ export const CategoryFilterChips: React.FC = () => {
 
   return (
     <div className="space-y-2">
-      {/* AI Sorting Status / Retry Notification */}
-      {(isCategorizing || categorizeError) && (
-        <div className="flex items-center justify-between px-3 py-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-xs text-[var(--color-text-secondary)] animate-fadeIn">
-          <div className="flex items-center gap-2">
-            {isCategorizing ? (
-              <>
-                <Loader2 size={13} className="animate-spin text-[var(--accent-chartreuse)]" />
-                <span>
-                  Sorting your emails...
-                  {categorizeProgress && ` (${categorizeProgress.processed}/${categorizeProgress.total})`}
-                </span>
-              </>
-            ) : (
-              <>
-                <AlertCircle size={13} className="text-[var(--accent-peach)]" />
-                <span>Some emails could not be categorized automatically.</span>
-              </>
-            )}
-          </div>
-
-          {categorizeError && (
-            <button
-              type="button"
-              onClick={retryCategorization}
-              className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-[var(--color-border)] hover:bg-[var(--color-hover-tint)] flex items-center gap-1 text-[var(--color-text-body)]"
-            >
-              <RefreshCw size={11} />
-              <span>Retry</span>
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Chips Carousel Container with edge fade masks */}
       <div className="relative w-full">
         {/* Soft fade on the left edge (when scrolled) */}

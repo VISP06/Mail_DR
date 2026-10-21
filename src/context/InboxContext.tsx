@@ -36,8 +36,7 @@ import {
   GmailDebugStatus,
   GMAIL_FETCH_LIMIT,
 } from '../providers/GmailProvider';
-import { EmailProvider } from '../providers/EmailProvider';
-import { categorizeEmailsApi } from '../services/geminiService';
+import { categorizeEmailsApi, toPlainCategorizeReason } from '../services/geminiService';
 import { RagService } from '../services/ragService';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
@@ -168,6 +167,7 @@ interface InboxContextType {
   categorizeProgress: { processed: number; total: number } | null;
   categorizeError: boolean;
   categorizeFailedCount: number;
+  categorizeFailedReason: string | null;
   lastCategorizeError: string | null;
   retryCategorization: () => void;
 
@@ -564,6 +564,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [categorizeProgress, setCategorizeProgress] = useState<{ processed: number; total: number } | null>(null);
   const [categorizeError, setCategorizeError] = useState<boolean>(false);
   const [categorizeFailedCount, setCategorizeFailedCount] = useState<number>(0);
+  const [categorizeFailedReason, setCategorizeFailedReason] = useState<string | null>(null);
   const [lastCategorizeError, setLastCategorizeError] = useState<string | null>(null);
 
   // Delete modal & Undo state
@@ -1195,7 +1196,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
       setCategorizeProgress({ processed: 0, total: emailsNeedingCategorization.length });
 
       try {
-        const { results, failedCount, lastError } = await categorizeEmailsApi(
+        const { results, failedCount, lastError, plainReason } = await categorizeEmailsApi(
           emailsNeedingCategorization,
           userCategories,
           (processed, total) => {
@@ -1206,6 +1207,9 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         if (lastError) {
           setLastCategorizeError(lastError);
         }
+        if (plainReason) {
+          setCategorizeFailedReason(plainReason);
+        }
 
         if (failedCount > 0) {
           setCategorizeError(true);
@@ -1213,6 +1217,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         } else {
           setCategorizeError(false);
           setCategorizeFailedCount(0);
+          setCategorizeFailedReason(null);
         }
 
         // Save result as source "ai" and cache it by message id (category id only, never email content) so no email is classified twice
@@ -1235,6 +1240,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         setCategorizeError(true);
         setCategorizeFailedCount(emailsNeedingCategorization.length);
         setLastCategorizeError(errorReason);
+        setCategorizeFailedReason(toPlainCategorizeReason(0, errorReason));
       } finally {
         setIsCategorizing(false);
         setTimeout(() => setCategorizeProgress(null), 1200);
@@ -1261,6 +1267,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
     setCategorizeError(false);
     setCategorizeFailedCount(0);
     setLastCategorizeError(null);
+    setCategorizeFailedReason(null);
     runCategorization();
   }, [runCategorization]);
 
@@ -1940,6 +1947,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
     categorizeProgress,
     categorizeError,
     categorizeFailedCount,
+    categorizeFailedReason,
     lastCategorizeError,
     retryCategorization,
 

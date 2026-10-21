@@ -133,7 +133,7 @@ ${emailSummaries}`;
       }
     } catch (parseErr) {
       console.error('[Categorize] JSON parse failed on Gemini response');
-      return res.status(502).json({ error: 'Failed to parse AI response' });
+      return res.status(502).json({ error: 'AI returned an unexpected answer', status: 502 });
     }
 
     // Validate the result (unknown ids are ignored)
@@ -155,9 +155,10 @@ ${emailSummaries}`;
 
     return res.json({ assignments, mapping: parsedMap });
   } catch (error: any) {
+    const status = typeof error?.status === 'number' ? error.status : 500;
     const errorReason = error?.message || 'Gemini API call failed';
-    console.error('[Categorize] API error:', errorReason);
-    return res.status(500).json({ error: errorReason });
+    console.error('[Categorize] API error:', { status, reason: errorReason });
+    return res.status(status).json({ error: errorReason, status });
   }
 });
 
