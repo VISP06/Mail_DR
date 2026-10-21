@@ -7,23 +7,34 @@ export interface CategorizeResult {
   categorySource: CategorySource;
 }
 
+export interface CategorizeResponse {
+  results: CategorizeResult[];
+  failedCount: number;
+  lastError: string | null;
+}
+
 export async function categorizeEmailsApi(
   emails: Email[],
   categories: EmailCategory[],
   onProgress?: (processed: number, total: number) => void
-): Promise<CategorizeResult[]> {
-  if (emails.length === 0) return [];
+): Promise<CategorizeResponse> {
+  if (emails.length === 0) {
+    return { results: [], failedCount: 0, lastError: null };
+  }
 
   const validCategoryIds = new Set(categories.map((c) => c.id));
   const results: CategorizeResult[] = [];
   const BATCH_SIZE = 20;
+  let failedCount = 0;
+  let lastError: string | null = null;
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE);
 
     try {
+      // 20-second timeout per batch
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
       const res = await fetch('/api/ai/categorize', {
         method: 'POST',
@@ -32,10 +43,9 @@ export async function categorizeEmailsApi(
         body: JSON.stringify({
           emails: batch.map((e) => ({
             id: e.id,
-            senderName: e.senderName,
-            senderEmail: e.senderEmail,
+            sender: `${e.senderName} <${e.senderEmail}>`,
             subject: e.subject,
-            snippet: e.snippet,
+            bodyExcerpt: (e.bodyText || e.snippet || '').slice(0, 300),
           })),
           categories: categories.map((c) => ({
             id: c.id,
@@ -48,32 +58,57 @@ export async function categorizeEmailsApi(
       clearTimeout(timeoutId);
 
       if (!res.ok) {
-        throw new Error(`Categorization failed (${res.status})`);
-      }
+        let reason = res.statusText || 'Request failed';
+        try {
+          const errData = await res.json();
+          if (errData?.error) reason = errData.error;
+        } catch {
+          // ignore
+        }
+        console.error('[Categorize] Batch failed:', { status: res.status, reason });
+        failedCount += batch.length;
+        lastError = `HTTP ${res.status}: ${reason}`;
 
-      const data = await res.json();
-      const assignments = data.assignments || [];
-
-      for (const email of batch) {
-        const match = assignments.find((a: any) => a.emailId === email.id);
-        if (match && validCategoryIds.has(match.categoryId)) {
-          results.push({
-            emailId: email.id,
-            categoryId: match.categoryId,
-            categorySource: (match.categorySource as CategorySource) || 'ai',
-          });
-        } else {
+        for (const email of batch) {
           results.push({
             emailId: email.id,
             categoryId: UNCATEGORIZED_CATEGORY_ID,
             categorySource: 'fallback',
           });
         }
+      } else {
+        const data = await res.json();
+        const assignments: any[] = data.assignments || [];
+        const mapping: Record<string, string> = data.mapping || {};
+
+        for (const email of batch) {
+          const found = assignments.find((a: any) => a.emailId === email.id);
+          const chosenCatId = found?.categoryId || mapping[email.id];
+
+          // Validate the result (unknown ids are ignored)
+          if (chosenCatId && validCategoryIds.has(chosenCatId) && chosenCatId !== UNCATEGORIZED_CATEGORY_ID) {
+            results.push({
+              emailId: email.id,
+              categoryId: chosenCatId,
+              categorySource: 'ai',
+            });
+          } else {
+            results.push({
+              emailId: email.id,
+              categoryId: UNCATEGORIZED_CATEGORY_ID,
+              categorySource: 'fallback',
+            });
+          }
+        }
       }
     } catch (err: any) {
       const isTimeout = err?.name === 'AbortError';
-      console.warn(`Batch categorization error (${isTimeout ? 'Timeout' : err.message}), applying safe fallback:`, err);
-      // On any failure or unknown value, assign "Uncategorized" with source "fallback". NEVER default to the first category.
+      const reason = isTimeout ? 'Timeout after 20s' : err?.message || 'Network error';
+      const status = isTimeout ? 408 : 0;
+      console.error('[Categorize] Batch failed:', { status, reason });
+      failedCount += batch.length;
+      lastError = isTimeout ? 'Timeout after 20s' : reason;
+
       for (const email of batch) {
         results.push({
           emailId: email.id,
@@ -86,7 +121,7 @@ export async function categorizeEmailsApi(
     onProgress?.(results.length, emails.length);
   }
 
-  return results;
+  return { results, failedCount, lastError };
 }
 
 export async function summarizeEmailApi(email: Email): Promise<EmailSummary> {

@@ -28,6 +28,7 @@ export const CategoryHubView: React.FC = () => {
     setHubShownThisSession,
     isReadOnlyMode,
     needsGmailConnect,
+    hasGmailToken,
     isGmailTokenExpired,
     isGmailLoading,
     gmailProgress,
@@ -36,6 +37,10 @@ export const CategoryHubView: React.FC = () => {
     reconnectGmail,
     loadEmails,
     signOut,
+    isCategorizing,
+    categorizeProgress,
+    categorizeFailedCount,
+    retryCategorization,
   } = useInbox();
 
   const [isExiting, setIsExiting] = useState(false);
@@ -121,33 +126,44 @@ export const CategoryHubView: React.FC = () => {
   // - Unread emails exist but none are High priority in last 30 days -> "Nothing urgent right now."
   // - Otherwise -> "N high-priority email(s) are waiting for you."
   const accentLineText = useMemo(() => {
-    if (isReadOnlyMode && !hasLoadedGmailSuccessfully) {
-      if (needsGmailConnect) {
-        return 'MailDR needs permission to read your mail.';
-      }
-      if (isGmailLoading) {
-        return gmailProgress ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...` : 'Reading your emails...';
-      }
+    // Show "MailDR needs permission to read your mail." ONLY when no Gmail access token is present
+    if (isReadOnlyMode && !hasGmailToken) {
       return 'MailDR needs permission to read your mail.';
     }
-    if (totalActiveUnreadEmails.length === 0) {
-      return "You're all caught up.";
+
+    // While emails are actively loading
+    if (isReadOnlyMode && isGmailLoading) {
+      return gmailProgress
+        ? `Reading your emails, ${gmailProgress.loaded} of ${gmailProgress.total}...`
+        : 'Reading your emails...';
     }
-    if (highPriorityUnread30DaysCount === 0) {
-      return 'Nothing urgent right now.';
-    }
+
+    // Otherwise use the normal lines
     if (highPriorityUnread30DaysCount === 1) {
       return '1 high-priority email is waiting for you.';
     }
-    return `${highPriorityUnread30DaysCount} high-priority emails are waiting for you.`;
+    if (highPriorityUnread30DaysCount > 1) {
+      return `${highPriorityUnread30DaysCount} high-priority emails are waiting for you.`;
+    }
+
+    if (totalActiveUnreadEmails.length === 0) {
+      // "You're all caught up." only when a Gmail load succeeded
+      if (!isReadOnlyMode || hasLoadedGmailSuccessfully || emails.length > 0) {
+        return "You're all caught up.";
+      }
+      return 'Nothing urgent right now.';
+    }
+
+    return 'Nothing urgent right now.';
   }, [
-    totalActiveUnreadEmails.length,
-    highPriorityUnread30DaysCount,
     isReadOnlyMode,
-    hasLoadedGmailSuccessfully,
-    needsGmailConnect,
+    hasGmailToken,
     isGmailLoading,
     gmailProgress,
+    highPriorityUnread30DaysCount,
+    totalActiveUnreadEmails.length,
+    hasLoadedGmailSuccessfully,
+    emails.length,
   ]);
 
   // Format date helper for rows and cards
@@ -330,6 +346,40 @@ export const CategoryHubView: React.FC = () => {
               {Math.round((gmailProgress.loaded / (gmailProgress.total || 1)) * 100)}%
             </span>
           )}
+        </div>
+      )}
+
+      {/* Categorization progress indicator */}
+      {isCategorizing && categorizeProgress && (
+        <div className="p-3.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between gap-3 text-xs mb-3">
+          <div className="flex items-center gap-2.5">
+            <Loader2 size={15} className="animate-spin text-[var(--accent-chartreuse)] shrink-0" />
+            <span className="font-medium text-[var(--color-text-body)]">
+              Sorting your emails, {categorizeProgress.processed} of {categorizeProgress.total}...
+            </span>
+          </div>
+          <span className="text-[11px] text-[var(--color-text-secondary)] font-mono">
+            {Math.round((categorizeProgress.processed / (categorizeProgress.total || 1)) * 100)}%
+          </span>
+        </div>
+      )}
+
+      {/* Categorization failure banner: Couldn't sort N emails. with Retry button */}
+      {categorizeFailedCount > 0 && !isCategorizing && (
+        <div className="p-3 sm:p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs mb-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="font-medium">
+              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={retryCategorization}
+            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs"
+          >
+            Retry
+          </button>
         </div>
       )}
 

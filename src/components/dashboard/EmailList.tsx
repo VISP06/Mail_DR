@@ -31,6 +31,10 @@ export const EmailList: React.FC = () => {
     reconnectGmail,
     loadEmails,
     signOut,
+    isCategorizing,
+    categorizeProgress,
+    categorizeFailedCount,
+    retryCategorization,
   } = useInbox();
 
   // 1. Filter emails by category or high priority filter
@@ -206,6 +210,40 @@ export const EmailList: React.FC = () => {
               {Math.round((gmailProgress.loaded / (gmailProgress.total || 1)) * 100)}%
             </span>
           )}
+        </div>
+      )}
+
+      {/* Categorization progress indicator */}
+      {isCategorizing && categorizeProgress && (
+        <div className="p-3.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Loader2 size={15} className="animate-spin text-[var(--accent-chartreuse)] shrink-0" />
+            <span className="font-medium text-[var(--color-text-body)]">
+              Sorting your emails, {categorizeProgress.processed} of {categorizeProgress.total}...
+            </span>
+          </div>
+          <span className="text-[11px] text-[var(--color-text-secondary)] font-mono">
+            {Math.round((categorizeProgress.processed / (categorizeProgress.total || 1)) * 100)}%
+          </span>
+        </div>
+      )}
+
+      {/* Categorization failure banner: Couldn't sort N emails. with Retry button */}
+      {categorizeFailedCount > 0 && !isCategorizing && (
+        <div className="p-3 sm:p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="font-medium">
+              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={retryCategorization}
+            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs"
+          >
+            Retry
+          </button>
         </div>
       )}
 

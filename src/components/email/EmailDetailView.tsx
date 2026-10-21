@@ -15,6 +15,125 @@ import { EmailSummary } from '../../types';
 import { SenderAvatar } from '../common/CategoryBadge';
 import { ConfirmationModal } from '../common/ConfirmationModal';
 
+// Helper to trim trailing spaces and limit consecutive empty lines to at most two
+function formatBodyText(rawText: string): string {
+  if (!rawText) return '';
+  const lines = rawText.split('\n').map((line) => line.trimEnd());
+  const resultLines: string[] = [];
+  let emptyCount = 0;
+  for (const line of lines) {
+    if (line.trim() === '') {
+      emptyCount++;
+      if (emptyCount <= 2) {
+        resultLines.push('');
+      }
+    } else {
+      emptyCount = 0;
+      resultLines.push(line);
+    }
+  }
+  return resultLines.join('\n');
+}
+
+// Extract domain label for display (e.g. meet.google.com)
+function getDomainLabel(urlStr: string): string {
+  try {
+    const url = new URL(urlStr);
+    return url.hostname.replace(/^www\./i, '') || urlStr;
+  } catch {
+    const withoutProtocol = urlStr.replace(/^https?:\/\//i, '');
+    const host = withoutProtocol.split('/')[0] || urlStr;
+    return host.replace(/^www\./i, '');
+  }
+}
+
+// Checks if the link's own text is just an address
+function isAddressOnlyText(text: string): boolean {
+  const trimmed = text.trim();
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/[^\s]*)?$/i.test(trimmed)) return true;
+  return false;
+}
+
+// Render plain text with clickable links (rel="noopener noreferrer"), short domain labels, and hover tooltip
+function renderBodyWithLinks(text: string): React.ReactNode {
+  const formatted = formatBodyText(text);
+  if (!formatted) return null;
+
+  // Match:
+  // 1) Markdown link: [text](https://url)
+  // 2) Angle-bracket URL: <https://url>
+  // 3) Raw URL: http:// or https://
+  const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)|<((?:https?:\/\/)[^\s>]+)>|(https?:\/\/[^\s<>"'()]+(?:\([^\s<>"']*\)|[^\s<>"'().,:;?!]))/gi;
+
+  const elements: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let keyIndex = 0;
+
+  while ((match = linkRegex.exec(formatted)) !== null) {
+    const matchIndex = match.index;
+    if (matchIndex > lastIndex) {
+      elements.push(
+        <React.Fragment key={`text-${keyIndex++}`}>
+          {formatted.slice(lastIndex, matchIndex)}
+        </React.Fragment>
+      );
+    }
+
+    let url = '';
+    let displayLabel = '';
+
+    if (match[1] && match[2]) {
+      // Markdown link [text](url)
+      const linkText = match[1];
+      url = match[2];
+      // If a link's own text is just an address, apply the domain label
+      if (isAddressOnlyText(linkText)) {
+        displayLabel = getDomainLabel(url);
+      } else {
+        displayLabel = linkText;
+      }
+    } else if (match[3]) {
+      // Angle-bracket link <url>
+      url = match[3];
+      displayLabel = getDomainLabel(url);
+    } else if (match[4]) {
+      // Raw URL
+      url = match[4];
+      displayLabel = getDomainLabel(url);
+    }
+
+    if (url) {
+      elements.push(
+        <a
+          key={`link-${keyIndex++}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={url}
+          className="inline-flex items-center gap-1 font-semibold text-[#292D1E] underline decoration-[rgba(116,121,90,0.5)] underline-offset-2 hover:decoration-[#292D1E] hover:text-black transition-colors break-all focus-visible:ring-2 focus-visible:ring-[#292D1E] rounded-xs"
+        >
+          <span className="break-all">{displayLabel}</span>
+          <ExternalLink size={12} className="inline-block shrink-0 opacity-75" aria-hidden="true" />
+        </a>
+      );
+    }
+
+    lastIndex = matchIndex + match[0].length;
+  }
+
+  if (lastIndex < formatted.length) {
+    elements.push(
+      <React.Fragment key={`text-${keyIndex++}`}>
+        {formatted.slice(lastIndex)}
+      </React.Fragment>
+    );
+  }
+
+  return elements;
+}
+
 export const EmailDetailView: React.FC = () => {
   const {
     selectedEmail,
@@ -24,6 +143,7 @@ export const EmailDetailView: React.FC = () => {
     moveEmailToCategory,
     blockSender,
     recordUnsubscribeAction,
+    isReadOnlyMode,
   } = useInbox();
 
   const [summary, setSummary] = useState<EmailSummary | null>(null);
@@ -178,20 +298,36 @@ export const EmailDetailView: React.FC = () => {
               </div>
             </div>
 
-            {/* Summarize Action Button */}
-            <button
-              type="button"
-              onClick={handleSummarize}
-              disabled={isSummarizing}
-              className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-full font-semibold text-xs tracking-wide flex items-center justify-center gap-2 transition-all shadow-xs hover:opacity-95 active:scale-98 disabled:opacity-60 shrink-0"
-              style={{
-                backgroundColor: '#292D1E',
-                color: '#E8F49A',
-              }}
-            >
-              <Sparkles size={14} className={isSummarizing ? 'animate-spin shrink-0' : 'shrink-0'} />
-              <span>{isSummarizing ? 'Summarizing...' : 'Summarize'}</span>
-            </button>
+            {/* Action buttons: Open in Gmail (Gmail mode only) & Summarize */}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              {isReadOnlyMode && (
+                <a
+                  href={`https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(selectedEmail.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-h-[44px] px-3.5 sm:px-4 py-2 rounded-full border border-[rgba(116,121,90,0.3)] bg-[#F5F3DF] hover:bg-[#EBE8CE] text-[#292D1E] transition-all flex items-center justify-center gap-1.5 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-[#292D1E] shrink-0"
+                  title="Open this email in Gmail"
+                >
+                  <ExternalLink size={14} className="shrink-0 text-[#5C6044]" />
+                  <span>Open in Gmail</span>
+                </a>
+              )}
+
+              {/* Summarize Action Button */}
+              <button
+                type="button"
+                onClick={handleSummarize}
+                disabled={isSummarizing}
+                className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-full font-semibold text-xs tracking-wide flex items-center justify-center gap-2 transition-all shadow-xs hover:opacity-95 active:scale-98 disabled:opacity-60 shrink-0"
+                style={{
+                  backgroundColor: '#292D1E',
+                  color: '#E8F49A',
+                }}
+              >
+                <Sparkles size={14} className={isSummarizing ? 'animate-spin shrink-0' : 'shrink-0'} />
+                <span>{isSummarizing ? 'Summarizing...' : 'Summarize'}</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -235,9 +371,9 @@ export const EmailDetailView: React.FC = () => {
           </div>
         )}
 
-        {/* Email Body */}
-        <div className="prose prose-sm max-w-none text-[#292D1E] leading-relaxed whitespace-pre-line text-sm font-normal break-words overflow-hidden">
-          {selectedEmail.bodyText}
+        {/* Email Body - Plain-text with clickable links, wrapped lines, readable in both themes */}
+        <div className="prose prose-sm max-w-none text-[#292D1E] leading-relaxed whitespace-pre-wrap text-sm font-normal break-words [overflow-wrap:anywhere] overflow-hidden">
+          {renderBodyWithLinks(selectedEmail.bodyText)}
         </div>
       </article>
 

@@ -79,6 +79,7 @@ export const SettingsView: React.FC = () => {
     setUseLargeDataset,
     isDemo,
     gmailDebugStatus,
+    lastCategorizeError,
   } = useInbox();
 
   const [isResettingEmails, setIsResettingEmails] = useState(false);
@@ -1220,6 +1221,20 @@ export const SettingsView: React.FC = () => {
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Last Categorization Error (STEP 5) */}
+              <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between text-xs">
+                <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                  Last categorization error:
+                </span>
+                <span className="font-mono font-medium text-[var(--color-text-body)]">
+                  {lastCategorizeError ? (
+                    <span className="text-rose-500 font-semibold">{lastCategorizeError}</span>
+                  ) : (
+                    <span className="text-[var(--color-text-secondary)]">None</span>
+                  )}
+                </span>
               </div>
             </div>
           );

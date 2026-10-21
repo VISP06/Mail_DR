@@ -103,6 +103,7 @@ interface InboxContextType {
   // Gmail & Read-Only Mode
   isReadOnlyMode: boolean;
   needsGmailConnect: boolean;
+  hasGmailToken: boolean;
   isGmailTokenExpired: boolean;
   isGmailLoading: boolean;
   gmailProgress: { loaded: number; total: number } | null;
@@ -166,6 +167,8 @@ interface InboxContextType {
   isCategorizing: boolean;
   categorizeProgress: { processed: number; total: number } | null;
   categorizeError: boolean;
+  categorizeFailedCount: number;
+  lastCategorizeError: string | null;
   retryCategorization: () => void;
 
   // Density & Theme
@@ -257,7 +260,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isReadOnlyMode = !isDemo && Boolean(firebaseUser);
   const activeEmailProvider: EmailProvider = isDemo ? mockEmailProvider : gmailEmailProvider;
   const emailProvider = activeEmailProvider;
-  const needsGmailConnect = isReadOnlyMode && (!gmailTokenState || isGmailTokenExpired);
+  const hasGmailToken = Boolean((gmailTokenState || getGmailAccessToken()) && !isGmailTokenExpired);
+  const needsGmailConnect = isReadOnlyMode && (!hasGmailToken || isGmailTokenExpired);
 
   const [rawEmails, setRawEmails] = useState<Email[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -559,6 +563,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isCategorizing, setIsCategorizing] = useState<boolean>(false);
   const [categorizeProgress, setCategorizeProgress] = useState<{ processed: number; total: number } | null>(null);
   const [categorizeError, setCategorizeError] = useState<boolean>(false);
+  const [categorizeFailedCount, setCategorizeFailedCount] = useState<number>(0);
+  const [lastCategorizeError, setLastCategorizeError] = useState<string | null>(null);
 
   // Delete modal & Undo state
   const [deletePrompt, setDeletePrompt] = useState<DeleteCategoryPromptState | null>(null);
@@ -1028,34 +1034,120 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [rawEmails]);
 
+// STEP 2: Layer 1 rule helpers (free, instant)
+function matchesBillsSubject(subject?: string): boolean {
+  if (!subject) return false;
+  const s = subject.toLowerCase();
+  return (
+    s.includes('receipt') ||
+    s.includes('invoice') ||
+    s.includes('statement') ||
+    s.includes('bill') ||
+    s.includes('payment due') ||
+    s.includes('order confirmation')
+  );
+}
+
+function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'updates' | 'bills'): string | null {
+  const valid = categories.filter((c) => !c.isSystem && c.id !== UNCATEGORIZED_CATEGORY_ID);
+  if (key === 'bills') {
+    const found = valid.find((c) => c.id === 'bills' || c.name.toLowerCase().includes('bill'));
+    return found ? found.id : null;
+  }
+  if (key === 'promotions') {
+    const found = valid.find((c) => c.id === 'promotions' || c.name.toLowerCase().includes('promotion'));
+    return found ? found.id : null;
+  }
+  if (key === 'updates') {
+    const found = valid.find((c) => c.id === 'updates' || c.name.toLowerCase().includes('update'));
+    return found ? found.id : null;
+  }
+  return null;
+}
+
   // Synchronize emails with category assignments and sender overrides.
-  // Trashed and archived emails disappear from the inbox list, chip counts, unread counts, search, read-first and RAG.
+  // STEP 2: Layer 1, rules (free, instant).
   const resolvedEmails = useMemo(() => {
     const validCategoryIds = new Set(categories.map((c) => c.id));
     const activeRawEmails = rawEmails.filter((e) => !e.isTrashed && !e.isArchived);
 
     return activeRawEmails.map((email) => {
-      // 1. Sender correction takes top precedence
+      // If user manually changed or moved this email, respect "user" source
+      const cached = emailAssignments[email.id];
+      if (cached && cached.categorySource === 'user' && validCategoryIds.has(cached.categoryId)) {
+        return {
+          ...email,
+          categoryId: cached.categoryId,
+          categorySource: 'user' as CategorySource,
+        };
+      }
+
+      // STEP 2: Layer 1, rules (free, instant). For every email whose categorySource is not "user",
+      // assign a category with source "rule" in this order:
+      // (a) a saved sender correction (senderEmail to categoryId);
       const senderOverride = senderCategoryOverrides[email.senderEmail.toLowerCase()];
       if (senderOverride && validCategoryIds.has(senderOverride)) {
         return {
           ...email,
           categoryId: senderOverride,
-          categorySource: 'user' as CategorySource,
+          categorySource: 'rule' as CategorySource,
         };
       }
 
-      // 2. Saved email assignment
-      const cached = emailAssignments[email.id];
-      if (cached && validCategoryIds.has(cached.categoryId)) {
+      // (c) if the subject matches receipt, invoice, statement, bill, payment due or order confirmation, give Bills, unless (a) applied.
+      if (matchesBillsSubject(email.subject)) {
+        const billsCatId = findCategoryIdByKey(categories, 'bills');
+        if (billsCatId && validCategoryIds.has(billsCatId)) {
+          return {
+            ...email,
+            categoryId: billsCatId,
+            categorySource: 'rule' as CategorySource,
+          };
+        }
+      }
+
+      // (b) gmailCategory "promotions" gives Promotions; "social", "updates" and "forums" give Updates;
+      if (email.gmailCategory === 'promotions') {
+        const promoCatId = findCategoryIdByKey(categories, 'promotions');
+        if (promoCatId && validCategoryIds.has(promoCatId)) {
+          return {
+            ...email,
+            categoryId: promoCatId,
+            categorySource: 'rule' as CategorySource,
+          };
+        }
+      }
+
+      if (
+        email.gmailCategory === 'social' ||
+        email.gmailCategory === 'updates' ||
+        email.gmailCategory === 'forums'
+      ) {
+        const updateCatId = findCategoryIdByKey(categories, 'updates');
+        if (updateCatId && validCategoryIds.has(updateCatId)) {
+          return {
+            ...email,
+            categoryId: updateCatId,
+            categorySource: 'rule' as CategorySource,
+          };
+        }
+      }
+
+      // Layer 2 cached AI classification (saved by message id, category id only, so no email is classified twice)
+      if (
+        cached &&
+        cached.categorySource === 'ai' &&
+        validCategoryIds.has(cached.categoryId) &&
+        cached.categoryId !== UNCATEGORIZED_CATEGORY_ID
+      ) {
         return {
           ...email,
           categoryId: cached.categoryId,
-          categorySource: cached.categorySource,
+          categorySource: 'ai' as CategorySource,
         };
       }
 
-      // 3. Pre-assigned rule or default category on the email
+      // Demo pre-assigned rule categories
       if (email.categoryId && validCategoryIds.has(email.categoryId) && email.categoryId !== UNCATEGORIZED_CATEGORY_ID) {
         return {
           ...email,
@@ -1064,7 +1156,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
       }
 
-      // 4. Fallback to Uncategorized
+      // Fallback to Uncategorized with source "fallback"
       return {
         ...email,
         categoryId: UNCATEGORIZED_CATEGORY_ID,
@@ -1073,9 +1165,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, [rawEmails, categories, emailAssignments, senderCategoryOverrides]);
 
-  // STEP 5: Categorization execution
-  // Re-categorize ONLY emails whose source is NOT "user".
-  // Generated emails have pre-assigned category and categorySource "rule": do NOT send to Gemini.
+  // STEP 3 & STEP 4: Layer 2, AI categorization execution
+  // Only emails still without a category go to Gemini, in batches of 20.
   const runCategorization = useCallback(
     async (forceEmails?: Email[]) => {
       if (!isStorageLoaded || rawEmails.length === 0) return;
@@ -1084,21 +1175,18 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (userCategories.length === 0) return;
 
       const pool = forceEmails || resolvedEmails;
-      // Only emails with no category yet should ever be categorized by AI
+
+      // Only emails still without a category go to Gemini
       const emailsNeedingCategorization = pool.filter((e) => {
-        // If sender has an explicit override, skip AI
-        if (senderCategoryOverrides[e.senderEmail.toLowerCase()]) return false;
-        // If user manually changed it, skip AI
         if (e.categorySource === 'user') return false;
-        // If email has a pre-assigned rule category, do NOT send to Gemini
-        if (e.categorySource === 'rule' && e.categoryId && e.categoryId !== UNCATEGORIZED_CATEGORY_ID) return false;
-        // Only emails with no category yet (Uncategorized or fallback) get categorized by AI
+        if (senderCategoryOverrides[e.senderEmail.toLowerCase()]) return false;
         return !e.categoryId || e.categoryId === UNCATEGORIZED_CATEGORY_ID;
       });
 
       if (emailsNeedingCategorization.length === 0) {
         setIsCategorizing(false);
         setCategorizeProgress(null);
+        setCategorizeFailedCount(0);
         return;
       }
 
@@ -1107,7 +1195,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCategorizeProgress({ processed: 0, total: emailsNeedingCategorization.length });
 
       try {
-        const assignments = await categorizeEmailsApi(
+        const { results, failedCount, lastError } = await categorizeEmailsApi(
           emailsNeedingCategorization,
           userCategories,
           (processed, total) => {
@@ -1115,49 +1203,64 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         );
 
-        // Update assignments cache
+        if (lastError) {
+          setLastCategorizeError(lastError);
+        }
+
+        if (failedCount > 0) {
+          setCategorizeError(true);
+          setCategorizeFailedCount(failedCount);
+        } else {
+          setCategorizeError(false);
+          setCategorizeFailedCount(0);
+        }
+
+        // Save result as source "ai" and cache it by message id (category id only, never email content) so no email is classified twice
         setEmailAssignments((prev) => {
           const next = { ...prev };
-          for (const a of assignments) {
-            // Do not override user-assigned sources if changed in the meantime
+          for (const a of results) {
             if (next[a.emailId]?.categorySource === 'user') continue;
-            next[a.emailId] = {
-              categoryId: a.categoryId,
-              categorySource: a.categorySource,
-            };
+            if (a.categorySource === 'ai') {
+              next[a.emailId] = {
+                categoryId: a.categoryId,
+                categorySource: 'ai',
+              };
+            }
           }
           return next;
         });
-      } catch (err) {
-        console.warn('Categorization process encountered an issue:', err);
+      } catch (err: any) {
+        const errorReason = err?.message || 'Categorization failed';
+        console.error('[Categorize] Batch failed:', { status: 0, reason: errorReason });
         setCategorizeError(true);
+        setCategorizeFailedCount(emailsNeedingCategorization.length);
+        setLastCategorizeError(errorReason);
       } finally {
         setIsCategorizing(false);
-        setTimeout(() => setCategorizeProgress(null), 1500);
+        setTimeout(() => setCategorizeProgress(null), 1200);
       }
     },
     [isStorageLoaded, rawEmails.length, categories, resolvedEmails, senderCategoryOverrides]
   );
 
-  // Trigger categorization when storage is loaded and emails have no assignments
-  const hasTriggeredInitialSort = useRef(false);
+  // Trigger categorization when storage is loaded, Gmail is not currently loading, and emails need sorting
   useEffect(() => {
-    if (!isStorageLoaded || rawEmails.length === 0) return;
+    if (!isStorageLoaded || rawEmails.length === 0 || isCategorizing || isGmailLoading) return;
 
-    if (!hasTriggeredInitialSort.current) {
-      hasTriggeredInitialSort.current = true;
-      // Check if unassigned emails exist
+    if (!categorizeError) {
       const unassigned = resolvedEmails.filter(
-        (e) => e.categoryId === UNCATEGORIZED_CATEGORY_ID && e.categorySource !== 'user'
+        (e) => (e.categoryId === UNCATEGORIZED_CATEGORY_ID || !e.categoryId) && e.categorySource !== 'user'
       );
       if (unassigned.length > 0) {
         runCategorization();
       }
     }
-  }, [isStorageLoaded, rawEmails.length, resolvedEmails, runCategorization]);
+  }, [isStorageLoaded, rawEmails.length, resolvedEmails, runCategorization, isCategorizing, isGmailLoading, categorizeError]);
 
   const retryCategorization = useCallback(() => {
     setCategorizeError(false);
+    setCategorizeFailedCount(0);
+    setLastCategorizeError(null);
     runCategorization();
   }, [runCategorization]);
 
@@ -1529,7 +1632,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveCategoryFilter('all');
 
     await loadEmails();
-    hasTriggeredInitialSort.current = false;
     setTimeout(() => {
       runCategorization();
     }, 200);
@@ -1631,7 +1733,6 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setHubShownThisSession(false);
 
     await loadEmails();
-    hasTriggeredInitialSort.current = false;
     setTimeout(() => {
       runCategorization();
     }, 200);
@@ -1776,6 +1877,7 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Gmail & Read-Only Mode
     isReadOnlyMode,
     needsGmailConnect,
+    hasGmailToken,
     isGmailTokenExpired,
     isGmailLoading,
     gmailProgress,
@@ -1837,6 +1939,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     isCategorizing,
     categorizeProgress,
     categorizeError,
+    categorizeFailedCount,
+    lastCategorizeError,
     retryCategorization,
 
     listDensity,
