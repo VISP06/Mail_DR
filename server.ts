@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -10,7 +11,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+// Limit request size
+app.use(express.json({ limit: '500kb' }));
 
 const apiKey = process.env.GEMINI_API_KEY || '';
 
@@ -26,18 +28,82 @@ if (apiKey) {
   });
 }
 
-// Health check endpoint
+// Load Firebase configuration for token verification
+let firebaseConfig: { apiKey?: string; projectId?: string } = {};
+try {
+  const cfgPath = path.resolve(__dirname, 'firebase-applet-config.json');
+  if (fs.existsSync(cfgPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+  }
+} catch {
+  // ignore
+}
+
+// Token verification with Google / Firebase
+async function verifyFirebaseIdToken(token: string): Promise<boolean> {
+  if (!token || typeof token !== 'string') return false;
+
+  const fbApiKey = process.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey;
+  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId;
+
+  try {
+    // 1. Google Identity Toolkit lookup
+    if (fbApiKey) {
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${fbApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.users && data.users.length > 0) {
+          return true;
+        }
+      }
+    }
+
+    // 2. Google OAuth2 tokeninfo verification
+    const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
+    if (tokenInfoRes.ok) {
+      const info = await tokenInfoRes.json();
+      if (info && (info.aud === projectId || info.sub)) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Authentication middleware for all routes calling Gemini
+async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+  }
+
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Missing token' });
+  }
+
+  const isValid = await verifyFirebaseIdToken(token);
+  if (!isValid) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid ID token' });
+  }
+
+  next();
+}
+
+// Health check endpoint (Item F) - returns { ok: true } without calling Gemini
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    hasApiKey: Boolean(apiKey),
-    model: 'gemini-3.8-flash',
-    embeddingModel: 'gemini-embedding-2-preview',
-  });
+  res.json({ ok: true });
 });
 
 // 1. Email Categorization Endpoint
-app.post('/api/ai/categorize', async (req, res) => {
+app.post('/api/ai/categorize', requireAuth, async (req, res) => {
   const { emails, categories, uncategorizedId = 'cat-uncategorized' } = req.body;
   if (!emails || !Array.isArray(emails) || !categories || !Array.isArray(categories)) {
     return res.status(400).json({ error: 'Missing emails or categories array' });
@@ -156,14 +222,20 @@ ${emailSummaries}`;
     return res.json({ assignments, mapping: parsedMap });
   } catch (error: any) {
     const status = typeof error?.status === 'number' ? error.status : 500;
-    const errorReason = error?.message || 'Gemini API call failed';
-    console.error('[Categorize] API error:', { status, reason: errorReason });
-    return res.status(status).json({ error: errorReason, status });
+    const genericError =
+      status === 429
+        ? 'AI service limit reached'
+        : status === 502
+        ? 'AI returned an unexpected answer'
+        : status === 408
+        ? "AI service didn't respond"
+        : 'AI categorization failed';
+    return res.status(status).json({ error: genericError, status });
   }
 });
 
 // 2. Email Summarize Endpoint
-app.post('/api/ai/summarize', async (req, res) => {
+app.post('/api/ai/summarize', requireAuth, async (req, res) => {
   const { email } = req.body;
   if (!email || !email.bodyText) {
     return res.status(400).json({ error: 'Missing email details' });
@@ -216,7 +288,7 @@ Provide:
       deadline: parsed.deadline === 'None' ? undefined : parsed.deadline,
     });
   } catch (error: any) {
-    console.warn('Summarize API error, falling back:', error.message);
+    console.warn('[Summarize] API call failed, using fallback summary');
     return res.json({
       summary: `Email from ${email.senderName} regarding "${email.subject}". ${email.snippet || ''}`,
       actionNeeded: email.subject.toLowerCase().includes('action') || email.subject.toLowerCase().includes('review') || email.subject.toLowerCase().includes('sign-off') ? 'Review details and respond if necessary.' : undefined,
@@ -226,7 +298,7 @@ Provide:
 });
 
 // 3. Read First Suggestions Endpoint
-app.post('/api/ai/read-first', async (req, res) => {
+app.post('/api/ai/read-first', requireAuth, async (req, res) => {
   const { emails } = req.body;
   if (!emails || !Array.isArray(emails) || emails.length === 0) {
     return res.status(400).json({ error: 'Missing emails array' });
@@ -286,7 +358,7 @@ Return a JSON array with emailId and reason.`;
     const suggestions = JSON.parse(response.text || '[]');
     return res.json({ suggestions });
   } catch (error: any) {
-    console.warn('Read-first API error, falling back:', error.message);
+    console.warn('[ReadFirst] API call failed, using fallback suggestions');
     const fallbackSuggestions = emails
       .filter((e: any) => e.isUnread)
       .slice(0, 4)
@@ -299,7 +371,7 @@ Return a JSON array with emailId and reason.`;
 });
 
 // 4. Batch Embeddings Endpoint (gemini-embedding-2-preview)
-app.post('/api/ai/embed', async (req, res) => {
+app.post('/api/ai/embed', requireAuth, async (req, res) => {
   const { texts } = req.body;
   if (!texts || !Array.isArray(texts)) {
     return res.status(400).json({ error: 'Missing texts array' });
@@ -334,7 +406,7 @@ app.post('/api/ai/embed', async (req, res) => {
     }
     return res.json({ embeddings });
   } catch (error: any) {
-    console.warn('Embedding API error, falling back to deterministic pseudo-embeddings:', error.message);
+    console.warn('[Embed] API call failed, using fallback embeddings');
     const pseudoEmbeddings = texts.map((text: string) => {
       const vec = new Array(64).fill(0);
       for (let i = 0; i < text.length; i++) {
@@ -348,7 +420,7 @@ app.post('/api/ai/embed', async (req, res) => {
 });
 
 // 5. Ask Your Inbox (RAG Synthesis with Citations)
-app.post('/api/ai/rag-chat', async (req, res) => {
+app.post('/api/ai/rag-chat', requireAuth, async (req, res) => {
   const { query, retrievedEmails } = req.body;
   if (!query) {
     return res.status(400).json({ error: 'Missing query' });
@@ -435,7 +507,7 @@ Provide your answer and list the cited email IDs.`;
 
     return res.json({ answer, citations });
   } catch (error: any) {
-    console.warn('RAG chat API error, falling back:', error.message);
+    console.warn('[RagChat] API call failed, using fallback');
     const topEmail = retrievedEmails[0];
     return res.json({
       answer: `Based on your emails: ${topEmail.senderName} wrote regarding "${topEmail.subject}": ${topEmail.snippet} [1]`,

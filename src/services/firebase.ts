@@ -226,3 +226,18 @@ export async function ensureUserDocument(user: User): Promise<void> {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
 }
+
+/**
+ * Retrieves the Firebase ID token of the signed-in user for backend authentication.
+ */
+export async function getFirebaseIdToken(): Promise<string | null> {
+  try {
+    if (auth.currentUser) {
+      return await auth.currentUser.getIdToken();
+    }
+  } catch (err) {
+    console.warn('[Auth] Failed to get ID token:', err);
+  }
+  return null;
+}
+

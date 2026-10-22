@@ -1,5 +1,6 @@
 import { Email, EmailCategory, EmailSummary, RagCitation, CategorySource } from '../types';
 import { UNCATEGORIZED_CATEGORY_ID } from '../constants/app';
+import { getFirebaseIdToken } from './firebase';
 
 export interface CategorizeResult {
   emailId: string;
@@ -12,6 +13,17 @@ export interface CategorizeResponse {
   failedCount: number;
   lastError: string | null;
   plainReason: string | null;
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await getFirebaseIdToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 export function toPlainCategorizeReason(status?: number | null, rawReason?: string | null): string {
@@ -30,6 +42,9 @@ export function toPlainCategorizeReason(status?: number | null, rawReason?: stri
   }
   if (s === 502 || r.includes('parse') || r.includes('json') || r.includes('unexpected') || r.includes('format')) {
     return 'AI returned an unexpected answer';
+  }
+  if (s === 401 || r.includes('unauthorized') || r.includes('auth')) {
+    return 'AI service authentication required';
   }
   if (r.includes('failed to fetch') || r.includes('network') || r.includes('no internet') || r.includes('econnrefused')) {
     return 'No internet';
@@ -64,10 +79,11 @@ export async function categorizeEmailsApi(
       // 20-second timeout per batch
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const headers = await getAuthHeaders();
 
       const res = await fetch('/api/ai/categorize', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         signal: controller.signal,
         body: JSON.stringify({
           emails: batch.map((e) => ({
@@ -161,9 +177,10 @@ export async function categorizeEmailsApi(
 
 export async function summarizeEmailApi(email: Email): Promise<EmailSummary> {
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/ai/summarize', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ email }),
     });
 
@@ -194,9 +211,10 @@ export async function summarizeEmailApi(email: Email): Promise<EmailSummary> {
 
 export async function embedTextsApi(texts: string[]): Promise<number[][]> {
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/ai/embed', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ texts }),
     });
 
@@ -224,9 +242,10 @@ export async function ragChatApi(
   retrievedEmails: Email[]
 ): Promise<{ answer: string; citations: RagCitation[] }> {
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/ai/rag-chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ query, retrievedEmails }),
     });
 

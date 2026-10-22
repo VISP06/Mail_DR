@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   Plus,
@@ -83,6 +83,30 @@ export const SettingsView: React.FC = () => {
   } = useInbox();
 
   const [isResettingEmails, setIsResettingEmails] = useState(false);
+  const [aiServerStatus, setAiServerStatus] = useState<'reachable' | 'not reachable' | 'checking'>('checking');
+
+  useEffect(() => {
+    let active = true;
+    const checkServerHealth = async () => {
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          const data = await res.json();
+          if (active) {
+            setAiServerStatus(data?.ok === true ? 'reachable' : 'not reachable');
+          }
+        } else {
+          if (active) setAiServerStatus('not reachable');
+        }
+      } catch {
+        if (active) setAiServerStatus('not reachable');
+      }
+    };
+    checkServerHealth();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Live email counts for Debug section
   const emailCounts = useMemo(() => {
@@ -967,23 +991,53 @@ export const SettingsView: React.FC = () => {
 
         {/* Gmail Status Diagnostic Block (Requirement 6) */}
         <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] mb-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold text-[var(--color-text-body)] flex items-center gap-2">
               <Mail size={14} className="text-[var(--accent-chartreuse)]" />
               Gmail status
             </span>
-            <span
-              className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                gmailDebugStatus.tokenPresent
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                  : 'bg-zinc-500/15 text-zinc-500 border-zinc-500/30'
-              }`}
-            >
-              token present ({gmailDebugStatus.tokenPresent ? 'yes' : 'no'})
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                  aiServerStatus === 'reachable'
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : aiServerStatus === 'not reachable'
+                    ? 'bg-rose-500/15 text-rose-500 border-rose-500/30'
+                    : 'bg-zinc-500/15 text-zinc-500 border-zinc-500/30'
+                }`}
+              >
+                AI server: {aiServerStatus}
+              </span>
+              <span
+                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                  gmailDebugStatus.tokenPresent
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : 'bg-zinc-500/15 text-zinc-500 border-zinc-500/30'
+                }`}
+              >
+                token present ({gmailDebugStatus.tokenPresent ? 'yes' : 'no'})
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs font-mono">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs font-mono">
+            <div className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <span className="text-[11px] text-[var(--color-text-secondary)] block font-sans mb-0.5">
+                AI server:
+              </span>
+              <span
+                className={`font-semibold ${
+                  aiServerStatus === 'reachable'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : aiServerStatus === 'not reachable'
+                    ? 'text-rose-500'
+                    : 'text-[var(--color-text-secondary)]'
+                }`}
+              >
+                {aiServerStatus}
+              </span>
+            </div>
+
             <div className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
               <span className="text-[11px] text-[var(--color-text-secondary)] block font-sans mb-0.5">
                 Last request path:
@@ -1223,10 +1277,10 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Last Categorization Error (STEP 5) */}
+              {/* Last AI error */}
               <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between text-xs">
                 <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
-                  Last categorization error:
+                  Last AI error:
                 </span>
                 <span className="font-mono font-medium text-[var(--color-text-body)]">
                   {lastCategorizeError ? (

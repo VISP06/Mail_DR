@@ -40,6 +40,7 @@ export const CategoryHubView: React.FC = () => {
     isCategorizing,
     categorizeProgress,
     categorizeFailedCount,
+    categorizeFailedReason,
     retryCategorization,
   } = useInbox();
 
@@ -364,19 +365,20 @@ export const CategoryHubView: React.FC = () => {
         </div>
       )}
 
-      {/* Categorization failure banner: Couldn't sort N emails. with Retry button */}
+      {/* Categorization failure banner: Couldn't sort N emails: [reason] with Retry button */}
       {categorizeFailedCount > 0 && !isCategorizing && (
         <div className="p-3 sm:p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs mb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <AlertCircle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="font-medium">
-              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}.
+            <span className="font-medium truncate">
+              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}
+              {categorizeFailedReason ? `: ${categorizeFailedReason}` : ''}.
             </span>
           </div>
           <button
             type="button"
             onClick={retryCategorization}
-            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs"
+            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs shrink-0"
           >
             Retry
           </button>

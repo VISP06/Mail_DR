@@ -36,6 +36,7 @@ import {
   GmailDebugStatus,
   GMAIL_FETCH_LIMIT,
 } from '../providers/GmailProvider';
+import { EmailProvider } from '../providers/EmailProvider';
 import { categorizeEmailsApi, toPlainCategorizeReason } from '../services/geminiService';
 import { RagService } from '../services/ragService';
 import { onAuthStateChanged, User } from 'firebase/auth';
