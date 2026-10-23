@@ -851,7 +851,14 @@ export const CleanupView: React.FC = () => {
 
                             {/* Protected Badge */}
                             {sender.isProtected && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                                style={{
+                                  backgroundColor: 'var(--status-success-bg)',
+                                  color: 'var(--status-success-text)',
+                                  borderColor: 'var(--status-success-border)',
+                                }}
+                              >
                                 <Shield size={10} />
                                 Protected
                               </span>
@@ -859,7 +866,14 @@ export const CleanupView: React.FC = () => {
 
                             {/* Unsubscribed Badge */}
                             {sender.isUnsubscribed && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                                style={{
+                                  backgroundColor: 'var(--status-warning-bg)',
+                                  color: 'var(--status-warning-text)',
+                                  borderColor: 'var(--status-warning-border)',
+                                }}
+                              >
                                 <MailX size={10} />
                                 Unsubscribed
                               </span>
@@ -867,7 +881,14 @@ export const CleanupView: React.FC = () => {
 
                             {/* Never opened Badge */}
                             {sender.openedCount === 0 && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/25">
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                                style={{
+                                  backgroundColor: 'var(--status-error-bg)',
+                                  color: 'var(--status-error-text)',
+                                  borderColor: 'var(--status-error-border)',
+                                }}
+                              >
                                 Never opened
                               </span>
                             )}
@@ -1441,11 +1462,17 @@ export const CleanupView: React.FC = () => {
           >
             <div className="flex items-start gap-3">
               <div
-                className={`p-2.5 rounded-full shrink-0 ${
-                  senderConfirm.actionType === 'unsubscribe'
-                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400'
-                    : 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
-                }`}
+                className="p-2.5 rounded-full shrink-0"
+                style={{
+                  backgroundColor:
+                    senderConfirm.actionType === 'unsubscribe'
+                      ? 'var(--status-warning-bg)'
+                      : 'var(--status-error-bg)',
+                  color:
+                    senderConfirm.actionType === 'unsubscribe'
+                      ? 'var(--status-warning-text)'
+                      : 'var(--status-error-text)',
+                }}
               >
                 {senderConfirm.actionType === 'unsubscribe' ? (
                   <MailX size={18} />

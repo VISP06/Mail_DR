@@ -365,7 +365,14 @@ export const EmailDetailView: React.FC = () => {
         )}
 
         {summaryError && (
-          <div className="mb-6 p-3 rounded-xl bg-red-50 text-red-800 text-xs flex items-center gap-2">
+          <div
+            className="mb-6 p-3 rounded-xl border text-xs flex items-center gap-2"
+            style={{
+              backgroundColor: 'var(--status-error-bg)',
+              color: 'var(--status-error-text)',
+              borderColor: 'var(--status-error-border)',
+            }}
+          >
             <AlertTriangle size={15} />
             <span>{summaryError}</span>
           </div>

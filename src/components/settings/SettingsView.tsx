@@ -954,7 +954,12 @@ export const SettingsView: React.FC = () => {
                   }
                 }}
                 disabled={isResettingEmails}
-                className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border transition-colors disabled:opacity-50"
+                style={{
+                  borderColor: 'var(--status-warning-border)',
+                  color: 'var(--status-warning-text)',
+                  backgroundColor: 'var(--status-warning-bg)',
+                }}
               >
                 {isResettingEmails ? 'Resetting emails...' : 'Reset sample emails'}
               </button>
@@ -970,7 +975,12 @@ export const SettingsView: React.FC = () => {
                 }
               }}
               disabled={isResetting}
-              className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border border-rose-400/40 text-rose-500 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+              className="min-h-[36px] px-4 py-1.5 text-xs font-bold rounded-full border transition-colors disabled:opacity-50"
+              style={{
+                borderColor: 'var(--status-error-border)',
+                color: 'var(--status-error-text)',
+                backgroundColor: 'var(--status-error-bg)',
+              }}
             >
               {isResetting ? 'Resetting...' : 'Reset category data'}
             </button>
@@ -998,22 +1008,43 @@ export const SettingsView: React.FC = () => {
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                  aiServerStatus === 'reachable'
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                    : aiServerStatus === 'not reachable'
-                    ? 'bg-rose-500/15 text-rose-500 border-rose-500/30'
-                    : 'bg-zinc-500/15 text-zinc-500 border-zinc-500/30'
-                }`}
+                className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full border"
+                style={{
+                  backgroundColor:
+                    aiServerStatus === 'reachable'
+                      ? 'var(--status-success-bg)'
+                      : aiServerStatus === 'not reachable'
+                      ? 'var(--status-error-bg)'
+                      : 'var(--color-surface)',
+                  color:
+                    aiServerStatus === 'reachable'
+                      ? 'var(--status-success-text)'
+                      : aiServerStatus === 'not reachable'
+                      ? 'var(--status-error-text)'
+                      : 'var(--color-text-secondary)',
+                  borderColor:
+                    aiServerStatus === 'reachable'
+                      ? 'var(--status-success-border)'
+                      : aiServerStatus === 'not reachable'
+                      ? 'var(--status-error-border)'
+                      : 'var(--color-border)',
+                }}
               >
                 AI server: {aiServerStatus}
               </span>
               <span
-                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                  gmailDebugStatus.tokenPresent
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                    : 'bg-zinc-500/15 text-zinc-500 border-zinc-500/30'
-                }`}
+                className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full border"
+                style={{
+                  backgroundColor: gmailDebugStatus.tokenPresent
+                    ? 'var(--status-success-bg)'
+                    : 'var(--color-surface)',
+                  color: gmailDebugStatus.tokenPresent
+                    ? 'var(--status-success-text)'
+                    : 'var(--color-text-secondary)',
+                  borderColor: gmailDebugStatus.tokenPresent
+                    ? 'var(--status-success-border)'
+                    : 'var(--color-border)',
+                }}
               >
                 token present ({gmailDebugStatus.tokenPresent ? 'yes' : 'no'})
               </span>
@@ -1026,13 +1057,15 @@ export const SettingsView: React.FC = () => {
                 AI server:
               </span>
               <span
-                className={`font-semibold ${
-                  aiServerStatus === 'reachable'
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : aiServerStatus === 'not reachable'
-                    ? 'text-rose-500'
-                    : 'text-[var(--color-text-secondary)]'
-                }`}
+                className="font-semibold"
+                style={{
+                  color:
+                    aiServerStatus === 'reachable'
+                      ? 'var(--status-success-text)'
+                      : aiServerStatus === 'not reachable'
+                      ? 'var(--status-error-text)'
+                      : 'var(--color-text-secondary)',
+                }}
               >
                 {aiServerStatus}
               </span>
@@ -1256,21 +1289,41 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Counts per CategorySource */}
+              {/* Number of emails by source (rule, AI, user, fallback) */}
               <div>
-                <span className="text-[11px] font-semibold block text-[var(--color-text-secondary)] mb-1">
-                  Count per categorySource:
+                <span className="text-[11px] font-semibold block text-[var(--color-text-secondary)] mb-1.5">
+                  Emails by source:
                 </span>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {(['rule', 'ai', 'user', 'fallback'] as const).map((src) => {
                     const cnt = sourceCounts[src] || 0;
                     return (
                       <span
                         key={src}
-                        className="text-[11px] px-2.5 py-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-1.5 font-mono"
+                        className="text-[11px] px-3 py-1.5 rounded-xl border flex items-center gap-2 font-mono transition-colors"
+                        style={{
+                          backgroundColor:
+                            src === 'ai'
+                              ? 'var(--status-success-bg)'
+                              : src === 'fallback'
+                              ? 'var(--status-warning-bg)'
+                              : 'var(--color-surface)',
+                          borderColor:
+                            src === 'ai'
+                              ? 'var(--status-success-border)'
+                              : src === 'fallback'
+                              ? 'var(--status-warning-border)'
+                              : 'var(--color-border)',
+                          color:
+                            src === 'ai'
+                              ? 'var(--status-success-text)'
+                              : src === 'fallback'
+                              ? 'var(--status-warning-text)'
+                              : 'var(--color-text-body)',
+                        }}
                       >
-                        <span className="font-medium uppercase text-[10px] text-[var(--color-text-secondary)]">{src}:</span>
-                        <span className="font-bold text-[var(--color-text-body)]">{cnt}</span>
+                        <span className="font-semibold uppercase text-[10px]">{src}:</span>
+                        <span className="font-bold">{cnt}</span>
                       </span>
                     );
                   })}
@@ -1284,7 +1337,9 @@ export const SettingsView: React.FC = () => {
                 </span>
                 <span className="font-mono font-medium text-[var(--color-text-body)]">
                   {lastCategorizeError ? (
-                    <span className="text-rose-500 font-semibold">{lastCategorizeError}</span>
+                    <span className="font-semibold" style={{ color: 'var(--status-error-text)' }}>
+                      {lastCategorizeError}
+                    </span>
                   ) : (
                     <span className="text-[var(--color-text-secondary)]">None</span>
                   )}
@@ -1397,13 +1452,27 @@ export const SettingsView: React.FC = () => {
                     {resolvedName}
                   </span>
                   <span
-                    className={`text-[10px] uppercase font-bold px-1.5 py-0.2 rounded ${
-                      email.categorySource === 'user'
-                        ? 'bg-purple-100 text-purple-800'
-                        : email.categorySource === 'ai'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
+                    className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded border"
+                    style={{
+                      backgroundColor:
+                        email.categorySource === 'ai'
+                          ? 'var(--status-success-bg)'
+                          : email.categorySource === 'fallback'
+                          ? 'var(--status-warning-bg)'
+                          : 'var(--color-surface-elevated)',
+                      borderColor:
+                        email.categorySource === 'ai'
+                          ? 'var(--status-success-border)'
+                          : email.categorySource === 'fallback'
+                          ? 'var(--status-warning-border)'
+                          : 'var(--color-border)',
+                      color:
+                        email.categorySource === 'ai'
+                          ? 'var(--status-success-text)'
+                          : email.categorySource === 'fallback'
+                          ? 'var(--status-warning-text)'
+                          : 'var(--color-text-body)',
+                    }}
                   >
                     {email.categorySource}
                   </span>

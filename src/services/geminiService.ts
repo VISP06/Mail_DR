@@ -34,6 +34,18 @@ export function toPlainCategorizeReason(status?: number | null, rawReason?: stri
   const s = status || 0;
   const r = (rawReason || '').toLowerCase();
 
+  if (
+    s === 0 ||
+    r.includes('failed to fetch') ||
+    r.includes('network') ||
+    r.includes('econnrefused') ||
+    r.includes('cannot reach') ||
+    r.includes("can't reach") ||
+    r.includes('unreachable') ||
+    r.includes('load failed')
+  ) {
+    return "Can't reach the AI server";
+  }
   if (s === 429 || r.includes('quota') || r.includes('resource_exhausted') || r.includes('rate limit') || r.includes('too many requests')) {
     return 'AI service limit reached';
   }
@@ -46,14 +58,11 @@ export function toPlainCategorizeReason(status?: number | null, rawReason?: stri
   if (s === 401 || r.includes('unauthorized') || r.includes('auth')) {
     return 'AI service authentication required';
   }
-  if (r.includes('failed to fetch') || r.includes('network') || r.includes('no internet') || r.includes('econnrefused')) {
-    return 'No internet';
-  }
   if (s === 503 || s === 500 || r.includes('unavailable') || r.includes('server error')) {
     return 'AI service unavailable';
   }
 
-  return rawReason || 'AI service error';
+  return rawReason || "Can't reach the AI server";
 }
 
 export async function categorizeEmailsApi(
@@ -74,91 +83,122 @@ export async function categorizeEmailsApi(
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE);
+    const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+    let batchSuccess = false;
+    let batchErrorReason: string | null = null;
+    let batchHttpStatus = 0;
 
-    try {
-      // 20-second timeout per batch
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-      const headers = await getAuthHeaders();
+    // Quiet auto-retry: retry silently up to 2 more times (after 3s and 10s)
+    const retryDelays = [0, 3000, 10000];
 
-      const res = await fetch('/api/ai/categorize', {
-        method: 'POST',
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          emails: batch.map((e) => ({
-            id: e.id,
-            sender: `${e.senderName} <${e.senderEmail}>`,
-            subject: e.subject,
-            bodyExcerpt: (e.bodyText || e.snippet || '').slice(0, 300),
-          })),
-          categories: categories.map((c) => ({
-            id: c.id,
-            name: c.name,
-            description: c.description,
-          })),
-          uncategorizedId: UNCATEGORIZED_CATEGORY_ID,
-        }),
-      });
-      clearTimeout(timeoutId);
+    for (let attemptIdx = 0; attemptIdx < retryDelays.length; attemptIdx++) {
+      if (attemptIdx > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelays[attemptIdx]));
+      }
 
-      if (!res.ok) {
-        let reason = res.statusText || 'Request failed';
-        let googleErrorReason: string | null = null;
-        try {
-          const errData = await res.json();
-          if (errData?.error) {
-            reason = errData.error;
-            googleErrorReason = errData.error;
+      try {
+        // 20-second timeout per batch attempt
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        const headers = await getAuthHeaders();
+
+        const res = await fetch('/api/ai/categorize', {
+          method: 'POST',
+          headers,
+          signal: controller.signal,
+          body: JSON.stringify({
+            emails: batch.map((e) => ({
+              id: e.id,
+              sender: `${e.senderName} <${e.senderEmail}>`,
+              subject: e.subject,
+              bodyExcerpt: (e.bodyText || e.snippet || '').slice(0, 300),
+            })),
+            categories: categories.map((c) => ({
+              id: c.id,
+              name: c.name,
+              description: c.description,
+            })),
+            uncategorizedId: UNCATEGORIZED_CATEGORY_ID,
+          }),
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          batchHttpStatus = res.status;
+          let reason = res.statusText || 'Request failed';
+          try {
+            const errData = await res.json();
+            if (errData?.error) {
+              reason = errData.error;
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
-        }
-        console.error('[Categorize] Batch failed:', { status: res.status, reason });
-        failedCount += batch.length;
-        lastError = `${res.status}${googleErrorReason || reason ? ` (${googleErrorReason || reason})` : ''}`;
-        plainReason = toPlainCategorizeReason(res.status, googleErrorReason || reason);
+          batchErrorReason = reason;
 
-        for (const email of batch) {
-          results.push({
-            emailId: email.id,
-            categoryId: UNCATEGORIZED_CATEGORY_ID,
-            categorySource: 'fallback',
-          });
-        }
-      } else {
-        const data = await res.json();
-        const assignments: any[] = data.assignments || [];
-        const mapping: Record<string, string> = data.mapping || {};
-
-        for (const email of batch) {
-          const found = assignments.find((a: any) => a.emailId === email.id);
-          const chosenCatId = found?.categoryId || mapping[email.id];
-
-          // Validate the result (unknown ids are ignored)
-          if (chosenCatId && validCategoryIds.has(chosenCatId) && chosenCatId !== UNCATEGORIZED_CATEGORY_ID) {
-            results.push({
-              emailId: email.id,
-              categoryId: chosenCatId,
-              categorySource: 'ai',
-            });
+          if (attemptIdx < retryDelays.length - 1) {
+            console.error(
+              `[Categorize] Batch ${batchIndex} attempt ${attemptIdx + 1} failed (${res.status}: ${reason}), retrying silently in ${retryDelays[attemptIdx + 1] / 1000}s...`
+            );
+            continue;
           } else {
-            results.push({
-              emailId: email.id,
-              categoryId: UNCATEGORIZED_CATEGORY_ID,
-              categorySource: 'fallback',
-            });
+            console.error(
+              `[Categorize] Batch ${batchIndex} failed permanently after ${retryDelays.length} attempts:`,
+              { status: res.status, reason }
+            );
           }
+        } else {
+          const data = await res.json();
+          const assignments: any[] = data.assignments || [];
+          const mapping: Record<string, string> = data.mapping || {};
+
+          for (const email of batch) {
+            const found = assignments.find((a: any) => a.emailId === email.id);
+            const chosenCatId = found?.categoryId || mapping[email.id];
+
+            // Validate the result (unknown ids are ignored)
+            if (chosenCatId && validCategoryIds.has(chosenCatId) && chosenCatId !== UNCATEGORIZED_CATEGORY_ID) {
+              results.push({
+                emailId: email.id,
+                categoryId: chosenCatId,
+                categorySource: 'ai',
+              });
+            } else {
+              results.push({
+                emailId: email.id,
+                categoryId: UNCATEGORIZED_CATEGORY_ID,
+                categorySource: 'fallback',
+              });
+            }
+          }
+          batchSuccess = true;
+          break; // Succeeded silently, break out of retry loop
+        }
+      } catch (err: any) {
+        const isTimeout = err?.name === 'AbortError';
+        const reason = isTimeout ? 'Timeout after 20s' : err?.message || "Can't reach the AI server";
+        const status = isTimeout ? 408 : 0;
+        batchHttpStatus = status;
+        batchErrorReason = reason;
+
+        if (attemptIdx < retryDelays.length - 1) {
+          console.error(
+            `[Categorize] Batch ${batchIndex} attempt ${attemptIdx + 1} failed (${reason}), retrying silently in ${retryDelays[attemptIdx + 1] / 1000}s...`
+          );
+          continue;
+        } else {
+          console.error(
+            `[Categorize] Batch ${batchIndex} failed permanently after ${retryDelays.length} attempts:`,
+            { status, reason }
+          );
         }
       }
-    } catch (err: any) {
-      const isTimeout = err?.name === 'AbortError';
-      const reason = isTimeout ? 'Timeout after 20s' : err?.message || 'Network error';
-      const status = isTimeout ? 408 : 0;
-      console.error('[Categorize] Batch failed:', { status, reason });
+    }
+
+    if (!batchSuccess) {
       failedCount += batch.length;
-      lastError = status > 0 ? `${status} (${reason})` : reason;
-      plainReason = toPlainCategorizeReason(status, reason);
+      lastError = batchHttpStatus > 0 ? `${batchHttpStatus}${batchErrorReason ? ` (${batchErrorReason})` : ''}` : (batchErrorReason || "Can't reach the AI server");
+      plainReason = toPlainCategorizeReason(batchHttpStatus, batchErrorReason);
 
       for (const email of batch) {
         results.push({

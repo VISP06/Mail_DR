@@ -170,7 +170,15 @@ interface InboxContextType {
   categorizeFailedCount: number;
   categorizeFailedReason: string | null;
   lastCategorizeError: string | null;
+  isRetryingCategorize: boolean;
+  retryResultBanner: {
+    type: 'success' | 'warning' | 'error';
+    message: string;
+  } | null;
+  dismissedFailedCount: number | null;
   retryCategorization: () => void;
+  dismissCategorizeBanner: () => void;
+  clearRetryResultBanner: () => void;
 
   // Density & Theme
   listDensity: ListDensity;
@@ -567,6 +575,12 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [categorizeFailedCount, setCategorizeFailedCount] = useState<number>(0);
   const [categorizeFailedReason, setCategorizeFailedReason] = useState<string | null>(null);
   const [lastCategorizeError, setLastCategorizeError] = useState<string | null>(null);
+  const [isRetryingCategorize, setIsRetryingCategorize] = useState<boolean>(false);
+  const [retryResultBanner, setRetryResultBanner] = useState<{
+    type: 'success' | 'warning' | 'error';
+    message: string;
+  } | null>(null);
+  const [dismissedFailedCount, setDismissedFailedCount] = useState<number | null>(null);
 
   // Delete modal & Undo state
   const [deletePrompt, setDeletePrompt] = useState<DeleteCategoryPromptState | null>(null);
@@ -1264,13 +1278,122 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
     }
   }, [isStorageLoaded, rawEmails.length, resolvedEmails, runCategorization, isCategorizing, isGmailLoading, categorizeError]);
 
-  const retryCategorization = useCallback(() => {
-    setCategorizeError(false);
-    setCategorizeFailedCount(0);
-    setLastCategorizeError(null);
-    setCategorizeFailedReason(null);
-    runCategorization();
-  }, [runCategorization]);
+  const dismissCategorizeBanner = useCallback(() => {
+    setDismissedFailedCount(categorizeFailedCount);
+    setRetryResultBanner(null);
+  }, [categorizeFailedCount]);
+
+  const clearRetryResultBanner = useCallback(() => {
+    setRetryResultBanner(null);
+  }, []);
+
+  const retryCategorization = useCallback(async () => {
+    if (isCategorizing || isRetryingCategorize) return;
+    setIsRetryingCategorize(true);
+    setRetryResultBanner(null);
+
+    // Re-run categorization ONLY for emails that failed (still uncategorized, not user-assigned, no sender rule)
+    const failedEmails = resolvedEmails.filter(
+      (e) =>
+        (!e.categoryId || e.categoryId === UNCATEGORIZED_CATEGORY_ID) &&
+        e.categorySource !== 'user' &&
+        !senderCategoryOverrides[e.senderEmail.toLowerCase()]
+    );
+
+    const totalToRetry = failedEmails.length;
+    if (totalToRetry === 0) {
+      setIsRetryingCategorize(false);
+      setCategorizeFailedCount(0);
+      setCategorizeFailedReason(null);
+      setCategorizeError(false);
+      setRetryResultBanner({
+        type: 'success',
+        message: 'All emails are categorized.',
+      });
+      return;
+    }
+
+    const userCategories = categories.filter((c) => !c.isSystem && c.id !== UNCATEGORIZED_CATEGORY_ID);
+
+    try {
+      const { results, failedCount, lastError, plainReason } = await categorizeEmailsApi(
+        failedEmails,
+        userCategories
+      );
+
+      if (lastError) {
+        setLastCategorizeError(lastError);
+      }
+
+      // Update assignments immediately so chips and counts update immediately!
+      const successfulAssignments = results.filter((r) => r.categorySource === 'ai');
+      if (successfulAssignments.length > 0) {
+        setEmailAssignments((prev) => {
+          const next = { ...prev };
+          for (const a of successfulAssignments) {
+            if (next[a.emailId]?.categorySource === 'user') continue;
+            next[a.emailId] = {
+              categoryId: a.categoryId,
+              categorySource: 'ai',
+            };
+          }
+          return next;
+        });
+      }
+
+      const sortedCount = successfulAssignments.length;
+      const stillFailedCount = failedCount;
+
+      setCategorizeFailedCount(stillFailedCount);
+
+      if (stillFailedCount === 0) {
+        setCategorizeFailedReason(null);
+        setCategorizeError(false);
+        setDismissedFailedCount(null);
+        setRetryResultBanner({
+          type: 'success',
+          message: `Sorted ${sortedCount} of ${totalToRetry}`,
+        });
+      } else {
+        const reason = plainReason || "Can't reach the AI server";
+        setCategorizeFailedReason(reason);
+        setCategorizeError(true);
+        // Reset dismissed state since user actively retried and there's a new result
+        setDismissedFailedCount(null);
+
+        if (sortedCount > 0) {
+          setRetryResultBanner({
+            type: 'warning',
+            message: `Sorted ${sortedCount} of ${totalToRetry}. Still couldn't sort ${stillFailedCount}: ${reason}`,
+          });
+        } else {
+          setRetryResultBanner({
+            type: 'warning',
+            message: `Still couldn't sort ${stillFailedCount}: ${reason}`,
+          });
+        }
+      }
+    } catch (err: any) {
+      const reason = err?.message || "Can't reach the AI server";
+      console.error('[Categorize] Batch failed:', { status: 0, reason });
+      setLastCategorizeError(reason);
+      setCategorizeFailedReason("Can't reach the AI server");
+      setCategorizeError(true);
+      setDismissedFailedCount(null);
+      setRetryResultBanner({
+        type: 'warning',
+        message: `Still couldn't sort ${totalToRetry}: Can't reach the AI server`,
+      });
+    } finally {
+      setIsRetryingCategorize(false);
+    }
+  }, [
+    isCategorizing,
+    isRetryingCategorize,
+    resolvedEmails,
+    senderCategoryOverrides,
+    categories,
+  ]);
 
   // Compute email priority based on user rules
   // "AI suggestions never override user rules."
@@ -1950,7 +2073,12 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
     categorizeFailedCount,
     categorizeFailedReason,
     lastCategorizeError,
+    isRetryingCategorize,
+    retryResultBanner,
+    dismissedFailedCount,
     retryCategorization,
+    dismissCategorizeBanner,
+    clearRetryResultBanner,
 
     listDensity,
     setListDensity,

@@ -6,6 +6,7 @@ import { ArrowUpDown, CheckCheck, Check, Search, Loader2, AlertCircle, ChevronDo
 import { searchEmails, highlightMatch } from '../../services/searchService';
 import { READ_FIRST_DAYS } from '../../constants/app';
 import { ConnectGmailCard } from '../auth/ConnectGmailCard';
+import { CategorizationBanner } from '../common/CategorizationBanner';
 
 export const EmailList: React.FC = () => {
   const {
@@ -127,8 +128,20 @@ export const EmailList: React.FC = () => {
   // State 3: 403 Forbidden with 0 emails loaded
   if (isReadOnlyMode && gmailErrorState?.type === '403' && emails.length === 0) {
     return (
-      <div className="p-7 sm:p-9 rounded-[28px] border border-amber-500/40 bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-500/15 text-amber-600 dark:text-amber-400 mb-4">
+      <div
+        className="p-7 sm:p-9 rounded-[28px] border text-center flex flex-col items-center my-6"
+        style={{
+          backgroundColor: 'var(--color-surface)',
+          borderColor: 'var(--status-warning-border)',
+        }}
+      >
+        <div
+          className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
+          style={{
+            backgroundColor: 'var(--status-warning-bg)',
+            color: 'var(--status-warning-text)',
+          }}
+        >
           <AlertCircle size={24} />
         </div>
         <h3 className="font-heading text-xl font-bold text-[var(--color-text-body)]">
@@ -231,25 +244,8 @@ export const EmailList: React.FC = () => {
         </div>
       )}
 
-      {/* Categorization failure banner: Couldn't sort N emails: [reason] with Retry button */}
-      {categorizeFailedCount > 0 && !isCategorizing && (
-        <div className="p-3 sm:p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertCircle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="font-medium truncate">
-              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}
-              {categorizeFailedReason ? `: ${categorizeFailedReason}` : ''}.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={retryCategorization}
-            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs shrink-0"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      {/* Categorization banner: with quiet auto-retry, status tokens, explain tooltip, and retry progress */}
+      <CategorizationBanner />
 
       {/* List Toolbar: Density, Priority Sorters, and Mark All As Read */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2 pb-1 border-b border-[var(--color-border)]">

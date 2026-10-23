@@ -233,7 +233,14 @@ export const AskInboxPanel: React.FC = () => {
             )}
 
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-red-50 text-red-800 text-xs flex items-center gap-2">
+              <div
+                className="p-3 rounded-xl border text-xs flex items-center gap-2"
+                style={{
+                  backgroundColor: 'var(--status-error-bg)',
+                  color: 'var(--status-error-text)',
+                  borderColor: 'var(--status-error-border)',
+                }}
+              >
                 <AlertCircle size={15} className="shrink-0" />
                 <span>{errorMsg}</span>
               </div>

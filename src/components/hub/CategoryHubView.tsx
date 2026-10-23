@@ -5,6 +5,7 @@ import { Email } from '../../types';
 import { OrganicBlob } from '../common/OrganicBlob';
 import { getCategoryIcon } from '../../constants/categoryIcons';
 import { ConnectGmailCard } from '../auth/ConnectGmailCard';
+import { CategorizationBanner } from '../common/CategorizationBanner';
 
 interface HubCardData {
   id: string;
@@ -306,8 +307,7 @@ export const CategoryHubView: React.FC = () => {
       <header className="pb-1 space-y-1">
         <div className="hub-animate-entrance" style={{ animationDelay: '0ms' }}>
           <span
-            className="text-xs font-semibold tracking-wide uppercase block mb-1 opacity-80"
-            style={{ color: 'var(--color-text-secondary)' }}
+            className="text-xs font-semibold tracking-wide uppercase block mb-1 text-[var(--color-text-secondary)]"
           >
             {todayFormatted}
           </span>
@@ -365,25 +365,10 @@ export const CategoryHubView: React.FC = () => {
         </div>
       )}
 
-      {/* Categorization failure banner: Couldn't sort N emails: [reason] with Retry button */}
-      {categorizeFailedCount > 0 && !isCategorizing && (
-        <div className="p-3 sm:p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 text-xs mb-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertCircle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="font-medium truncate">
-              Couldn't sort {categorizeFailedCount} {categorizeFailedCount === 1 ? 'email' : 'emails'}
-              {categorizeFailedReason ? `: ${categorizeFailedReason}` : ''}.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={retryCategorization}
-            className="px-3.5 py-1 rounded-full font-semibold border border-amber-500/40 bg-[var(--color-surface)] text-[var(--color-text-body)] hover:bg-[var(--color-hover-tint)] transition-all cursor-pointer shadow-2xs shrink-0"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      {/* Categorization banner: with quiet auto-retry, status tokens, explain tooltip, and retry progress */}
+      <div className="mb-3">
+        <CategorizationBanner />
+      </div>
 
       {/* If restored session with no token in memory -> show Connect Gmail card */}
       {needsGmailConnect && emails.length === 0 ? (
@@ -405,8 +390,20 @@ export const CategoryHubView: React.FC = () => {
         </div>
       ) : isReadOnlyMode && gmailErrorState?.type === '403' && emails.length === 0 ? (
         /* 403 Forbidden state */
-        <div className="p-7 sm:p-9 rounded-[28px] border border-amber-500/40 bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-500/15 text-amber-600 dark:text-amber-400 mb-4">
+        <div
+          className="p-7 sm:p-9 rounded-[28px] border text-center flex flex-col items-center my-6"
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            borderColor: 'var(--status-warning-border)',
+          }}
+        >
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
+            style={{
+              backgroundColor: 'var(--status-warning-bg)',
+              color: 'var(--status-warning-text)',
+            }}
+          >
             <AlertCircle size={24} />
           </div>
           <h3 className="font-heading text-xl font-bold text-[var(--color-text-body)]">
@@ -437,8 +434,14 @@ export const CategoryHubView: React.FC = () => {
         </div>
       ) : isReadOnlyMode && gmailErrorState?.type === 'other' && emails.length === 0 ? (
         /* Other error state */
-        <div className="p-7 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-surface)] text-center flex flex-col items-center my-6">
-          <AlertCircle size={24} className="text-rose-500 mb-3" />
+        <div
+          className="p-7 rounded-[28px] border text-center flex flex-col items-center my-6"
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            borderColor: 'var(--status-error-border)',
+          }}
+        >
+          <AlertCircle size={24} className="mb-3" style={{ color: 'var(--status-error-text)' }} />
           <h3 className="font-heading text-base font-bold text-[var(--color-text-body)] mb-1">
             Unable to Load Gmail
           </h3>
