@@ -170,6 +170,8 @@ interface InboxContextType {
   categorizeFailedCount: number;
   categorizeFailedReason: string | null;
   lastCategorizeError: string | null;
+  lastAiResponseStatus: number | null;
+  lastAiContentType: string | null;
   isRetryingCategorize: boolean;
   retryResultBanner: {
     type: 'success' | 'warning' | 'error';
@@ -575,6 +577,8 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [categorizeFailedCount, setCategorizeFailedCount] = useState<number>(0);
   const [categorizeFailedReason, setCategorizeFailedReason] = useState<string | null>(null);
   const [lastCategorizeError, setLastCategorizeError] = useState<string | null>(null);
+  const [lastAiResponseStatus, setLastAiResponseStatus] = useState<number | null>(null);
+  const [lastAiContentType, setLastAiContentType] = useState<string | null>(null);
   const [isRetryingCategorize, setIsRetryingCategorize] = useState<boolean>(false);
   const [retryResultBanner, setRetryResultBanner] = useState<{
     type: 'success' | 'warning' | 'error';
@@ -1050,39 +1054,23 @@ export const InboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [rawEmails]);
 
-// STEP 2: Layer 1 rule helpers (free, instant)
-function matchesBillsSubject(subject?: string): boolean {
-  if (!subject) return false;
-  const s = subject.toLowerCase();
-  return (
-    s.includes('receipt') ||
-    s.includes('invoice') ||
-    s.includes('statement') ||
-    s.includes('bill') ||
-    s.includes('payment due') ||
-    s.includes('order confirmation')
-  );
-}
-
-function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'updates' | 'bills'): string | null {
+function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'social'): string | null {
   const valid = categories.filter((c) => !c.isSystem && c.id !== UNCATEGORIZED_CATEGORY_ID);
-  if (key === 'bills') {
-    const found = valid.find((c) => c.id === 'bills' || c.name.toLowerCase().includes('bill'));
-    return found ? found.id : null;
-  }
   if (key === 'promotions') {
     const found = valid.find((c) => c.id === 'promotions' || c.name.toLowerCase().includes('promotion'));
     return found ? found.id : null;
   }
-  if (key === 'updates') {
-    const found = valid.find((c) => c.id === 'updates' || c.name.toLowerCase().includes('update'));
+  if (key === 'social') {
+    const found = valid.find((c) => c.id === 'social' || c.name.toLowerCase().includes('social'));
     return found ? found.id : null;
   }
   return null;
 }
 
   // Synchronize emails with category assignments and sender overrides.
-  // STEP 2: Layer 1, rules (free, instant).
+  // RULES LAYER: only use Gmail's own tags for "promotions" and "social" (assign Promotions and Social).
+  // Emails whose gmailCategory is "updates", "forums" or "primary" go to the AI layer in batches of 20, unless a sender correction exists.
+  // Keep caching results by message id so no email is classified twice.
   const resolvedEmails = useMemo(() => {
     const validCategoryIds = new Set(categories.map((c) => c.id));
     const activeRawEmails = rawEmails.filter((e) => !e.isTrashed && !e.isArchived);
@@ -1098,9 +1086,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         };
       }
 
-      // STEP 2: Layer 1, rules (free, instant). For every email whose categorySource is not "user",
-      // assign a category with source "rule" in this order:
-      // (a) a saved sender correction (senderEmail to categoryId);
+      // 1. Sender correction (senderEmail to categoryId)
       const senderOverride = senderCategoryOverrides[email.senderEmail.toLowerCase()];
       if (senderOverride && validCategoryIds.has(senderOverride)) {
         return {
@@ -1110,19 +1096,7 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         };
       }
 
-      // (c) if the subject matches receipt, invoice, statement, bill, payment due or order confirmation, give Bills, unless (a) applied.
-      if (matchesBillsSubject(email.subject)) {
-        const billsCatId = findCategoryIdByKey(categories, 'bills');
-        if (billsCatId && validCategoryIds.has(billsCatId)) {
-          return {
-            ...email,
-            categoryId: billsCatId,
-            categorySource: 'rule' as CategorySource,
-          };
-        }
-      }
-
-      // (b) gmailCategory "promotions" gives Promotions; "social", "updates" and "forums" give Updates;
+      // 2. Rules Layer: only use Gmail's own tags for "promotions" and "social" (assign Promotions and Social)
       if (email.gmailCategory === 'promotions') {
         const promoCatId = findCategoryIdByKey(categories, 'promotions');
         if (promoCatId && validCategoryIds.has(promoCatId)) {
@@ -1134,22 +1108,18 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         }
       }
 
-      if (
-        email.gmailCategory === 'social' ||
-        email.gmailCategory === 'updates' ||
-        email.gmailCategory === 'forums'
-      ) {
-        const updateCatId = findCategoryIdByKey(categories, 'updates');
-        if (updateCatId && validCategoryIds.has(updateCatId)) {
+      if (email.gmailCategory === 'social') {
+        const socialCatId = findCategoryIdByKey(categories, 'social');
+        if (socialCatId && validCategoryIds.has(socialCatId)) {
           return {
             ...email,
-            categoryId: updateCatId,
+            categoryId: socialCatId,
             categorySource: 'rule' as CategorySource,
           };
         }
       }
 
-      // Layer 2 cached AI classification (saved by message id, category id only, so no email is classified twice)
+      // 3. Layer 2 cached AI classification (saved by message id, category id only, so no email is classified twice)
       if (
         cached &&
         cached.categorySource === 'ai' &&
@@ -1163,23 +1133,24 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
         };
       }
 
-      // Demo pre-assigned rule categories
-      if (email.categoryId && validCategoryIds.has(email.categoryId) && email.categoryId !== UNCATEGORIZED_CATEGORY_ID) {
+      // 4. Demo pre-assigned rule categories (demo sample emails only)
+      if (isDemo && email.categoryId && validCategoryIds.has(email.categoryId) && email.categoryId !== UNCATEGORIZED_CATEGORY_ID && email.categorySource === 'rule') {
         return {
           ...email,
           categoryId: email.categoryId,
-          categorySource: email.categorySource || ('rule' as CategorySource),
+          categorySource: 'rule' as CategorySource,
         };
       }
 
-      // Fallback to Uncategorized with source "fallback"
+      // 5. Fallback to Uncategorized: emails whose gmailCategory is "updates", "forums" or "primary"
+      // go to the AI layer in batches of 20
       return {
         ...email,
         categoryId: UNCATEGORIZED_CATEGORY_ID,
         categorySource: 'fallback' as CategorySource,
       };
     });
-  }, [rawEmails, categories, emailAssignments, senderCategoryOverrides]);
+  }, [rawEmails, categories, emailAssignments, senderCategoryOverrides, isDemo]);
 
   // STEP 3 & STEP 4: Layer 2, AI categorization execution
   // Only emails still without a category go to Gemini, in batches of 20.
@@ -1211,13 +1182,20 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
       setCategorizeProgress({ processed: 0, total: emailsNeedingCategorization.length });
 
       try {
-        const { results, failedCount, lastError, plainReason } = await categorizeEmailsApi(
+        const { results, failedCount, lastError, plainReason, lastResponseStatus, lastContentType } = await categorizeEmailsApi(
           emailsNeedingCategorization,
           userCategories,
           (processed, total) => {
             setCategorizeProgress({ processed, total });
           }
         );
+
+        if (lastResponseStatus !== null) {
+          setLastAiResponseStatus(lastResponseStatus);
+        }
+        if (lastContentType !== null) {
+          setLastAiContentType(lastContentType);
+        }
 
         if (lastError) {
           setLastCategorizeError(lastError);
@@ -1316,10 +1294,17 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
     const userCategories = categories.filter((c) => !c.isSystem && c.id !== UNCATEGORIZED_CATEGORY_ID);
 
     try {
-      const { results, failedCount, lastError, plainReason } = await categorizeEmailsApi(
+      const { results, failedCount, lastError, plainReason, lastResponseStatus, lastContentType } = await categorizeEmailsApi(
         failedEmails,
         userCategories
       );
+
+      if (lastResponseStatus !== null) {
+        setLastAiResponseStatus(lastResponseStatus);
+      }
+      if (lastContentType !== null) {
+        setLastAiContentType(lastContentType);
+      }
 
       if (lastError) {
         setLastCategorizeError(lastError);
@@ -2073,6 +2058,8 @@ function findCategoryIdByKey(categories: EmailCategory[], key: 'promotions' | 'u
     categorizeFailedCount,
     categorizeFailedReason,
     lastCategorizeError,
+    lastAiResponseStatus,
+    lastAiContentType,
     isRetryingCategorize,
     retryResultBanner,
     dismissedFailedCount,

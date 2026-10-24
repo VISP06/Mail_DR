@@ -13,10 +13,12 @@ export interface CategorizeResponse {
   failedCount: number;
   lastError: string | null;
   plainReason: string | null;
+  lastResponseStatus: number | null;
+  lastContentType: string | null;
 }
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = await getFirebaseIdToken();
+async function getAuthHeaders(forceRefresh = false): Promise<Record<string, string>> {
+  const token = await getFirebaseIdToken(forceRefresh);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -34,6 +36,9 @@ export function toPlainCategorizeReason(status?: number | null, rawReason?: stri
   const s = status || 0;
   const r = (rawReason || '').toLowerCase();
 
+  if (r.includes('sign-in error') || r.includes('sign in')) {
+    return 'Sign-in error: Please sign in again';
+  }
   if (
     s === 0 ||
     r.includes('failed to fetch') ||
@@ -56,7 +61,7 @@ export function toPlainCategorizeReason(status?: number | null, rawReason?: stri
     return 'AI returned an unexpected answer';
   }
   if (s === 401 || r.includes('unauthorized') || r.includes('auth')) {
-    return 'AI service authentication required';
+    return 'Sign-in error: Please sign in again';
   }
   if (s === 503 || s === 500 || r.includes('unavailable') || r.includes('server error')) {
     return 'AI service unavailable';
@@ -71,7 +76,14 @@ export async function categorizeEmailsApi(
   onProgress?: (processed: number, total: number) => void
 ): Promise<CategorizeResponse> {
   if (emails.length === 0) {
-    return { results: [], failedCount: 0, lastError: null, plainReason: null };
+    return {
+      results: [],
+      failedCount: 0,
+      lastError: null,
+      plainReason: null,
+      lastResponseStatus: null,
+      lastContentType: null,
+    };
   }
 
   const validCategoryIds = new Set(categories.map((c) => c.id));
@@ -80,6 +92,8 @@ export async function categorizeEmailsApi(
   let failedCount = 0;
   let lastError: string | null = null;
   let plainReason: string | null = null;
+  let lastResponseStatus: number | null = null;
+  let lastContentType: string | null = null;
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE);
@@ -97,87 +111,144 @@ export async function categorizeEmailsApi(
       }
 
       try {
-        // 20-second timeout per batch attempt
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 20000);
-        const headers = await getAuthHeaders();
+        let headers = await getAuthHeaders(false);
 
-        const res = await fetch('/api/ai/categorize', {
+        const requestBody = JSON.stringify({
+          emails: batch.map((e) => ({
+            id: e.id,
+            sender: `${e.senderName} <${e.senderEmail}>`,
+            subject: e.subject,
+            bodyExcerpt: (e.bodyText || e.snippet || '').slice(0, 300),
+          })),
+          categories: categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+            description: c.description,
+          })),
+          uncategorizedId: UNCATEGORIZED_CATEGORY_ID,
+        });
+
+        let res = await fetch('/api/ai/categorize', {
           method: 'POST',
           headers,
           signal: controller.signal,
-          body: JSON.stringify({
-            emails: batch.map((e) => ({
-              id: e.id,
-              sender: `${e.senderName} <${e.senderEmail}>`,
-              subject: e.subject,
-              bodyExcerpt: (e.bodyText || e.snippet || '').slice(0, 300),
-            })),
-            categories: categories.map((c) => ({
-              id: c.id,
-              name: c.name,
-              description: c.description,
-            })),
-            uncategorizedId: UNCATEGORIZED_CATEGORY_ID,
-          }),
+          body: requestBody,
         });
+
+        let currentContentType = res.headers.get('content-type') || '';
+        let currentStatus = res.status;
+
+        // On 401, fetch a fresh Firebase ID token (getIdToken(true)), retry once, then report a sign-in error
+        if (currentStatus === 401) {
+          const raw401Body = await res.text();
+          const trimmed401 = raw401Body.trim();
+          console.error('[Categorize]', {
+            status: currentStatus,
+            contentType: currentContentType,
+            startsWithAngle: trimmed401.startsWith('<'),
+            startsWithBacktick: trimmed401.startsWith('`'),
+          });
+
+          const freshToken = await getFirebaseIdToken(true);
+          if (!freshToken) {
+            throw new Error('Sign-in error: Please sign in again');
+          }
+
+          headers = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${freshToken}`,
+          };
+
+          res = await fetch('/api/ai/categorize', {
+            method: 'POST',
+            headers,
+            signal: controller.signal,
+            body: requestBody,
+          });
+
+          currentContentType = res.headers.get('content-type') || '';
+          currentStatus = res.status;
+
+          if (currentStatus === 401) {
+            const rawSecond401 = await res.text();
+            const trimmedSecond401 = rawSecond401.trim();
+            console.error('[Categorize]', {
+              status: currentStatus,
+              contentType: currentContentType,
+              startsWithAngle: trimmedSecond401.startsWith('<'),
+              startsWithBacktick: trimmedSecond401.startsWith('`'),
+            });
+            throw new Error('Sign-in error: Please sign in again');
+          }
+        }
+
         clearTimeout(timeoutId);
 
-        if (!res.ok) {
-          batchHttpStatus = res.status;
-          let reason = res.statusText || 'Request failed';
-          try {
-            const errData = await res.json();
-            if (errData?.error) {
-              reason = errData.error;
-            }
-          } catch {
-            // ignore
-          }
-          batchErrorReason = reason;
+        batchHttpStatus = currentStatus;
+        lastResponseStatus = currentStatus;
+        lastContentType = currentContentType;
 
-          if (attemptIdx < retryDelays.length - 1) {
-            console.error(
-              `[Categorize] Batch ${batchIndex} attempt ${attemptIdx + 1} failed (${res.status}: ${reason}), retrying silently in ${retryDelays[attemptIdx + 1] / 1000}s...`
-            );
-            continue;
-          } else {
-            console.error(
-              `[Categorize] Batch ${batchIndex} failed permanently after ${retryDelays.length} attempts:`,
-              { status: res.status, reason }
-            );
-          }
-        } else {
-          const data = await res.json();
-          const assignments: any[] = data.assignments || [];
-          const mapping: Record<string, string> = data.mapping || {};
+        // Read response body text safely to check startsWith without logging content
+        const rawBody = await res.text();
+        const trimmed = rawBody.trim();
+        const startsWithAngle = trimmed.startsWith('<');
+        const startsWithBacktick = trimmed.startsWith('`');
 
-          for (const email of batch) {
-            const found = assignments.find((a: any) => a.emailId === email.id);
-            const chosenCatId = found?.categoryId || mapping[email.id];
-
-            // Validate the result (unknown ids are ignored)
-            if (chosenCatId && validCategoryIds.has(chosenCatId) && chosenCatId !== UNCATEGORIZED_CATEGORY_ID) {
-              results.push({
-                emailId: email.id,
-                categoryId: chosenCatId,
-                categorySource: 'ai',
-              });
-            } else {
-              results.push({
-                emailId: email.id,
-                categoryId: UNCATEGORIZED_CATEGORY_ID,
-                categorySource: 'fallback',
-              });
-            }
-          }
-          batchSuccess = true;
-          break; // Succeeded silently, break out of retry loop
+        // Before parsing any response from the AI server, check response.ok and the Content-Type header.
+        // If the status is not ok or the type is not application/json, throw an error with the status and content type instead of calling JSON.parse.
+        if (!res.ok || !currentContentType.toLowerCase().includes('application/json')) {
+          console.error('[Categorize]', {
+            status: currentStatus,
+            contentType: currentContentType,
+            startsWithAngle,
+            startsWithBacktick,
+          });
+          throw new Error(`HTTP ${currentStatus} (${currentContentType || 'unknown type'})`);
         }
+
+        let data: any;
+        try {
+          data = JSON.parse(rawBody);
+        } catch {
+          console.error('[Categorize]', {
+            status: currentStatus,
+            contentType: currentContentType,
+            startsWithAngle,
+            startsWithBacktick,
+          });
+          throw new Error(`HTTP ${currentStatus} (JSON parse error)`);
+        }
+
+        const assignments: any[] = data.assignments || [];
+        const mapping: Record<string, string> = data.mapping || {};
+
+        for (const email of batch) {
+          const found = assignments.find((a: any) => a.emailId === email.id);
+          const chosenCatId = found?.categoryId || mapping[email.id];
+
+          // Validate the result (unknown ids are ignored)
+          if (chosenCatId && validCategoryIds.has(chosenCatId) && chosenCatId !== UNCATEGORIZED_CATEGORY_ID) {
+            results.push({
+              emailId: email.id,
+              categoryId: chosenCatId,
+              categorySource: 'ai',
+            });
+          } else {
+            results.push({
+              emailId: email.id,
+              categoryId: UNCATEGORIZED_CATEGORY_ID,
+              categorySource: 'fallback',
+            });
+          }
+        }
+        batchSuccess = true;
+        break; // Succeeded silently, break out of retry loop
       } catch (err: any) {
         const isTimeout = err?.name === 'AbortError';
         const reason = isTimeout ? 'Timeout after 20s' : err?.message || "Can't reach the AI server";
-        const status = isTimeout ? 408 : 0;
+        const status = isTimeout ? 408 : batchHttpStatus || 0;
         batchHttpStatus = status;
         batchErrorReason = reason;
 
@@ -212,7 +283,14 @@ export async function categorizeEmailsApi(
     onProgress?.(results.length, emails.length);
   }
 
-  return { results, failedCount, lastError, plainReason };
+  return {
+    results,
+    failedCount,
+    lastError,
+    plainReason,
+    lastResponseStatus,
+    lastContentType,
+  };
 }
 
 export async function summarizeEmailApi(email: Email): Promise<EmailSummary> {

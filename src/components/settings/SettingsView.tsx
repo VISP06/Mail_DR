@@ -80,6 +80,8 @@ export const SettingsView: React.FC = () => {
     isDemo,
     gmailDebugStatus,
     lastCategorizeError,
+    lastAiResponseStatus,
+    lastAiContentType,
   } = useInbox();
 
   const [isResettingEmails, setIsResettingEmails] = useState(false);
@@ -1330,20 +1332,41 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Last AI error */}
-              <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between text-xs">
-                <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
-                  Last AI error:
-                </span>
-                <span className="font-mono font-medium text-[var(--color-text-body)]">
-                  {lastCategorizeError ? (
-                    <span className="font-semibold" style={{ color: 'var(--status-error-text)' }}>
-                      {lastCategorizeError}
-                    </span>
-                  ) : (
-                    <span className="text-[var(--color-text-secondary)]">None</span>
-                  )}
-                </span>
+              {/* Last AI error & Last AI response */}
+              <div className="pt-2 border-t border-[var(--color-border)] space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                    Last AI error:
+                  </span>
+                  <span className="font-mono font-medium text-[var(--color-text-body)]">
+                    {lastCategorizeError ? (
+                      <span className="font-semibold" style={{ color: 'var(--status-error-text)' }}>
+                        {lastCategorizeError}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--color-text-secondary)]">None</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                    Last AI response:
+                  </span>
+                  <span className="font-mono font-medium text-[var(--color-text-body)]">
+                    {lastAiResponseStatus !== null ? (
+                      <span>
+                        HTTP {lastAiResponseStatus}
+                        {lastAiContentType ? (
+                          <span className="text-[var(--color-text-secondary)] text-[11px] ml-1.5">
+                            ({lastAiContentType})
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--color-text-secondary)]">None</span>
+                    )}
+                  </span>
+                </div>
               </div>
             </div>
           );

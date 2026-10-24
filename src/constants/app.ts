@@ -118,6 +118,13 @@ export const DEFAULT_CATEGORIES: EmailCategory[] = [
     isSystem: false,
   },
   {
+    id: 'social',
+    name: 'Social',
+    description: 'Social networks, messages, friend updates, group invites, and community activity.',
+    color: '#C8B8D8', // lavender
+    isSystem: false,
+  },
+  {
     id: 'updates',
     name: 'Updates',
     description: 'Automated service notifications, GitHub alerts, delivery status, password confirmations, and app receipts.',
